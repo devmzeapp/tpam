@@ -1,0 +1,10 @@
+{
+  "buildCommand": "prisma generate && next build",
+  "installCommand": "bun install",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "env": {
+    "DATABASE_URL": "@database_url",
+    "DIRECT_DATABASE_URL": "@direct_database_url"
+  }
+}
