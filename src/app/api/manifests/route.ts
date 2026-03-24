@@ -47,12 +47,27 @@ export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
 
+    // Get the first admin user as default creator if not provided
+    let createdById = data.createdById;
+    if (!createdById) {
+      const adminUser = await db.user.findFirst({
+        where: { role: "ADMIN" },
+      });
+      if (!adminUser) {
+        return NextResponse.json(
+          { error: "No admin user found. Please run /api/init first." },
+          { status: 500 }
+        );
+      }
+      createdById = adminUser.id;
+    }
+
     const manifest = await db.manifest.create({
       data: {
         serviceId: data.serviceId,
         vehicleId: data.vehicleId,
         driverId: data.driverId,
-        createdById: data.createdById || "default-user",
+        createdById: createdById,
         date: new Date(data.date),
         departurePlace: data.departurePlace,
         arrivalPlace: data.arrivalPlace,

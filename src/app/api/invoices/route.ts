@@ -101,11 +101,26 @@ export async function POST(request: NextRequest) {
     const taxAmount = subtotal * (taxRate / 100);
     const total = subtotal + taxAmount;
 
+    // Get the first admin user as default creator if not provided
+    let createdById = data.createdById;
+    if (!createdById) {
+      const adminUser = await db.user.findFirst({
+        where: { role: "ADMIN" },
+      });
+      if (!adminUser) {
+        return NextResponse.json(
+          { error: "No admin user found. Please run /api/init first." },
+          { status: 500 }
+        );
+      }
+      createdById = adminUser.id;
+    }
+
     const invoice = await db.invoice.create({
       data: {
         number,
         clientId: data.clientId,
-        createdById: data.createdById || "default-user",
+        createdById: createdById,
         type,
         status: InvoiceStatus.DRAFT,
         issueDate: new Date(),
