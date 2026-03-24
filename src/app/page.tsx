@@ -2339,13 +2339,147 @@ function ClientsView() {
 
 // ==================== INVOICES VIEW ====================
 
+interface InvoiceItem {
+  id: string;
+  serviceId: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  service?: Service;
+}
+
+interface InvoiceWithItems {
+  id: string;
+  number: string;
+  clientId: string;
+  createdById: string;
+  type: string;
+  status: string;
+  issueDate: string;
+  dueDate?: string;
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  currency: string;
+  notes?: string;
+  client?: Client;
+  items?: InvoiceItem[];
+}
+
 function InvoicesView() {
   const [filters, setFilters] = useState({ type: "", status: "" });
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithItems | null>(null);
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
 
   const { data: invoices, isLoading } = useQuery({
     queryKey: ["invoices", filters],
     queryFn: () => api.getInvoices(filters),
   });
+
+  const handlePrintInvoice = (invoice: InvoiceWithItems) => {
+    setSelectedInvoice(invoice);
+    setShowPrintDialog(true);
+  };
+
+  const printInvoice = () => {
+    if (!selectedInvoice) return;
+    
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${selectedInvoice.type === 'PRO_FORMA' ? 'Facture Pro Forma' : 'Facture'} ${selectedInvoice.number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; margin-bottom: 40px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+          .logo { font-size: 36px; font-weight: bold; color: #2563eb; }
+          .title { font-size: 24px; margin-top: 10px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
+          .info-box { }
+          .info-box h3 { margin: 0 0 10px 0; color: #666; font-size: 14px; }
+          .info-box p { margin: 5px 0; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+          th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+          th { background: #f5f5f5; }
+          .totals { text-align: right; margin-top: 20px; }
+          .totals p { margin: 5px 0; }
+          .total-final { font-size: 20px; font-weight: bold; border-top: 2px solid #333; padding-top: 10px; }
+          .footer { margin-top: 50px; text-align: center; color: #666; font-size: 12px; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="logo">TPAM</div>
+          <div class="title">${selectedInvoice.type === 'PRO_FORMA' ? 'FACTURE PRO FORMA' : 'FACTURE'}</div>
+          <div>N° ${selectedInvoice.number}</div>
+          <div>Date: ${format(new Date(selectedInvoice.issueDate), 'dd/MM/yyyy')}</div>
+        </div>
+        
+        <div class="info-grid">
+          <div class="info-box">
+            <h3>ÉMETTEUR</h3>
+            <p><strong>TPAM - Transport Planning & Accounting</strong></p>
+            <p>Adresse: Casablanca, Maroc</p>
+            <p>Tél: +212 5 22 00 00 00</p>
+            <p>Email: contact@tpam.ma</p>
+          </div>
+          <div class="info-box">
+            <h3>CLIENT</h3>
+            <p><strong>${selectedInvoice.client?.name || 'N/A'}</strong></p>
+            <p>${selectedInvoice.client?.address || ''}</p>
+            <p>${selectedInvoice.client?.city || ''}</p>
+            <p>${selectedInvoice.client?.phone || ''}</p>
+            ${selectedInvoice.client?.ice ? `<p>ICE: ${selectedInvoice.client.ice}</p>` : ''}
+          </div>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th style="text-align: center;">Qté</th>
+              <th style="text-align: right;">Prix unitaire</th>
+              <th style="text-align: right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${selectedInvoice.items?.map(item => `
+              <tr>
+                <td>${item.description}</td>
+                <td style="text-align: center;">${item.quantity}</td>
+                <td style="text-align: right;">${item.unitPrice.toLocaleString()} MAD</td>
+                <td style="text-align: right;">${item.total.toLocaleString()} MAD</td>
+              </tr>
+            `).join('') || ''}
+          </tbody>
+        </table>
+        
+        <div class="totals">
+          <p>Sous-total: ${selectedInvoice.subtotal?.toLocaleString() || 0} MAD</p>
+          ${selectedInvoice.taxRate > 0 ? `<p>TVA (${selectedInvoice.taxRate}%): ${selectedInvoice.taxAmount?.toLocaleString() || 0} MAD</p>` : ''}
+          <p class="total-final">Total TTC: ${selectedInvoice.total?.toLocaleString() || 0} MAD</p>
+        </div>
+        
+        ${selectedInvoice.notes ? `<p style="margin-top: 30px;"><strong>Notes:</strong> ${selectedInvoice.notes}</p>` : ''}
+        
+        <div class="footer">
+          <p>Merci pour votre confiance !</p>
+          <p>TPAM - Transportation Planning & Accounting Management</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -2425,7 +2559,7 @@ function InvoicesView() {
                   </TableCell>
                 </TableRow>
               ) : (
-                invoices?.map((invoice) => (
+                invoices?.map((invoice: InvoiceWithItems) => (
                   <TableRow key={invoice.id}>
                     <TableCell className="font-mono font-medium">{invoice.number}</TableCell>
                     <TableCell>{invoice.client?.name}</TableCell>
@@ -2445,13 +2579,13 @@ function InvoicesView() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                          <DropdownMenuItem>
-                            <Eye className="h-4 w-4 mr-2" />
-                            Voir / Imprimer
+                          <DropdownMenuItem onClick={() => handlePrintInvoice(invoice)}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Imprimer
                           </DropdownMenuItem>
                           <DropdownMenuItem>
-                            <Download className="h-4 w-4 mr-2" />
-                            Exporter PDF
+                            <Eye className="h-4 w-4 mr-2" />
+                            Voir détails
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -2463,6 +2597,69 @@ function InvoicesView() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Print Dialog */}
+      <Dialog open={showPrintDialog} onOpenChange={setShowPrintDialog}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedInvoice?.type === 'PRO_FORMA' ? 'Facture Pro Forma' : 'Facture'} {selectedInvoice?.number}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedInvoice && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">Client</p>
+                  <p className="font-medium">{selectedInvoice.client?.name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Date</p>
+                  <p className="font-medium">{format(new Date(selectedInvoice.issueDate), 'dd/MM/yyyy')}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total TTC</p>
+                  <p className="font-bold text-lg">{selectedInvoice.total?.toLocaleString()} MAD</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Statut</p>
+                  {getStatusBadge(selectedInvoice.status)}
+                </div>
+              </div>
+              
+              {selectedInvoice.items && selectedInvoice.items.length > 0 && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="text-center">Qté</TableHead>
+                      <TableHead className="text-right">Prix</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedInvoice.items.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.description}</TableCell>
+                        <TableCell className="text-center">{item.quantity}</TableCell>
+                        <TableCell className="text-right">{item.unitPrice.toLocaleString()} MAD</TableCell>
+                        <TableCell className="text-right">{item.total.toLocaleString()} MAD</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPrintDialog(false)}>Fermer</Button>
+            <Button onClick={printInvoice}>
+              <Printer className="h-4 w-4 mr-2" />
+              Imprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2653,11 +2850,154 @@ function PaymentsView() {
 
 // ==================== MANIFESTS VIEW ====================
 
+interface ManifestData {
+  id: string;
+  serviceId: string;
+  vehicleId: string;
+  driverId: string;
+  createdById: string;
+  date: string;
+  departurePlace: string;
+  arrivalPlace: string;
+  departureTime?: string;
+  arrivalTime?: string;
+  passengerCount: number;
+  passengerList?: string;
+  remarks?: string;
+  vehicle?: Vehicle;
+  driver?: Driver;
+  service?: { client?: Client };
+}
+
 function ManifestsView() {
   const { data: manifests, isLoading } = useQuery({
     queryKey: ["manifests"],
     queryFn: api.getManifests,
   });
+
+  const printManifest = (manifest: ManifestData) => {
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Manifeste de Voyage - ${manifest.departurePlace} → ${manifest.arrivalPlace}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+          .logo { font-size: 36px; font-weight: bold; color: #2563eb; }
+          .title { font-size: 24px; margin-top: 10px; }
+          .route { font-size: 18px; color: #666; margin-top: 5px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+          .info-box { background: #f5f5f5; padding: 15px; border-radius: 8px; }
+          .info-box h3 { margin: 0 0 10px 0; color: #666; font-size: 12px; text-transform: uppercase; }
+          .info-box p { margin: 5px 0; font-size: 14px; }
+          .section { margin-bottom: 30px; }
+          .section h2 { font-size: 16px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+          th { background: #f5f5f5; }
+          .signature-area { margin-top: 50px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+          .signature-box { border-top: 1px solid #333; padding-top: 10px; text-align: center; }
+          .footer { margin-top: 50px; text-align: center; color: #666; font-size: 12px; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="logo">TPAM</div>
+          <div class="title">MANIFESTE DE VOYAGE</div>
+          <div class="route">${manifest.departurePlace} → ${manifest.arrivalPlace}</div>
+          <div style="margin-top: 10px;">Date: ${format(new Date(manifest.date), 'EEEE dd MMMM yyyy', { locale: fr })}</div>
+        </div>
+        
+        <div class="info-grid">
+          <div class="info-box">
+            <h3>VÉHICULE</h3>
+            <p><strong>${manifest.vehicle?.brand || ''} ${manifest.vehicle?.model || ''}</strong></p>
+            <p>Immatriculation: ${manifest.vehicle?.registration || 'N/A'}</p>
+            <p>Capacité: ${manifest.vehicle?.capacity || 0} places</p>
+          </div>
+          <div class="info-box">
+            <h3>CHAUFFEUR</h3>
+            <p><strong>${manifest.driver?.firstName || ''} ${manifest.driver?.lastName || ''}</strong></p>
+            <p>Tél: ${manifest.driver?.phone || 'N/A'}</p>
+            <p>Permis: ${manifest.driver?.licenseNumber || 'N/A'}</p>
+          </div>
+        </div>
+        
+        <div class="info-grid">
+          <div class="info-box">
+            <h3>CLIENT</h3>
+            <p><strong>${manifest.service?.client?.name || 'N/A'}</strong></p>
+            <p>${manifest.service?.client?.phone || ''}</p>
+          </div>
+          <div class="info-box">
+            <h3>VOYAGE</h3>
+            <p><strong>Départ:</strong> ${manifest.departurePlace} ${manifest.departureTime ? `à ${manifest.departureTime}` : ''}</p>
+            <p><strong>Arrivée:</strong> ${manifest.arrivalPlace} ${manifest.arrivalTime ? `à ${manifest.arrivalTime}` : ''}</p>
+            <p><strong>Passagers:</strong> ${manifest.passengerCount}</p>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>Liste des passagers</h2>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">N°</th>
+                <th>Nom et Prénom</th>
+                <th style="width: 150px;">Téléphone</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${manifest.passengerList ? manifest.passengerList.split('\n').map((p, i) => `
+                <tr>
+                  <td style="text-align: center;">${i + 1}</td>
+                  <td>${p}</td>
+                  <td></td>
+                </tr>
+              `).join('') : Array(manifest.passengerCount).fill(0).map((_, i) => `
+                <tr>
+                  <td style="text-align: center;">${i + 1}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        
+        ${manifest.remarks ? `
+          <div class="section">
+            <h2>Remarques</h2>
+            <p>${manifest.remarks}</p>
+          </div>
+        ` : ''}
+        
+        <div class="signature-area">
+          <div class="signature-box">
+            <p>Signature du Chauffeur</p>
+          </div>
+          <div class="signature-box">
+            <p>Signature du Responsable</p>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p>TPAM - Transportation Planning & Accounting Management</p>
+          <p>Document généré le ${format(new Date(), 'dd/MM/yyyy à HH:mm')}</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
 
   return (
     <div className="p-6 space-y-4">
@@ -2673,14 +3013,14 @@ function ManifestsView() {
             Aucun manifeste créé. Générez des manifestes à partir des prestations.
           </div>
         ) : (
-          manifests?.map((manifest) => (
+          manifests?.map((manifest: ManifestData) => (
             <Card key={manifest.id}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">
                     {manifest.departurePlace} → {manifest.arrivalPlace}
                   </CardTitle>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={() => printManifest(manifest)}>
                     <Printer className="h-4 w-4 mr-2" />
                     Imprimer
                   </Button>
@@ -2727,7 +3067,7 @@ function ReportsView() {
     startDate: format(startOfMonth(new Date()), "yyyy-MM-dd"),
     endDate: format(endOfMonth(new Date()), "yyyy-MM-dd"),
   });
-  const [generatedReport, setGeneratedReport] = useState<unknown>(null);
+  const [generatedReport, setGeneratedReport] = useState<{ type: string; generatedAt: string; data: unknown } | null>(null);
 
   const { refetch, isLoading } = useQuery({
     queryKey: ["reports", reportType, dateRange],
@@ -2739,6 +3079,84 @@ function ReportsView() {
     const result = await refetch();
     if (result.data) {
       setGeneratedReport(result.data);
+    }
+  };
+
+  const printReport = () => {
+    if (!generatedReport) return;
+    
+    const reportData = generatedReport.data as Service[];
+    const reportTitle = reportType === 'planning' ? 'Planning des prestations' :
+                        reportType === 'vehicle' ? 'Rapport par véhicule' :
+                        reportType === 'driver' ? 'Rapport par chauffeur' :
+                        reportType === 'combined' ? 'Rapport combiné' :
+                        'Comptes débiteurs';
+
+    const tableRows = Array.isArray(reportData) ? reportData.map((item: Service) => `
+      <tr>
+        <td>${format(new Date(item.date), 'dd/MM/yyyy')}</td>
+        <td>${item.client?.name || 'N/A'}</td>
+        <td>${item.departurePlace} → ${item.arrivalPlace}</td>
+        <td>${item.vehicle?.brand || ''} ${item.vehicle?.model || ''}</td>
+        <td>${item.driver?.firstName || ''} ${item.driver?.lastName || ''}</td>
+        <td style="text-align: right;">${item.price?.toLocaleString() || 0} MAD</td>
+      </tr>
+    `).join('') : '';
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${reportTitle} - TPAM</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; }
+          .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+          .logo { font-size: 36px; font-weight: bold; color: #2563eb; }
+          .title { font-size: 24px; margin-top: 10px; }
+          .period { color: #666; margin-top: 5px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 12px; }
+          th { background: #f5f5f5; font-weight: bold; }
+          .footer { margin-top: 50px; text-align: center; color: #666; font-size: 12px; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="logo">TPAM</div>
+          <div class="title">${reportTitle.toUpperCase()}</div>
+          <div class="period">Période: ${dateRange.startDate} au ${dateRange.endDate}</div>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Client</th>
+              <th>Trajet</th>
+              <th>Véhicule</th>
+              <th>Chauffeur</th>
+              <th style="text-align: right;">Montant</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        
+        <div class="footer">
+          <p>TPAM - Transportation Planning & Accounting Management</p>
+          <p>Rapport généré le ${format(new Date(), 'dd/MM/yyyy à HH:mm')}</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.print();
     }
   };
 
@@ -2807,15 +3225,7 @@ function ReportsView() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Résultats du rapport</CardTitle>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm">
-                <FileSpreadsheet className="h-4 w-4 mr-2" />
-                Export Excel
-              </Button>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Export PDF
-              </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={printReport}>
                 <Printer className="h-4 w-4 mr-2" />
                 Imprimer
               </Button>
