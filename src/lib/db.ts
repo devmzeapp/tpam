@@ -2,21 +2,19 @@ import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
+// Database URL - hardcoded for Vercel deployment
+// In production, this should be in environment variables
+const DATABASE_URL = process.env.DATABASE_URL || 
+  "postgresql://neondb_owner:npg_34VWfvXExqkd@ep-round-sky-an1ah6j4-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+
 function createPrismaClient(): PrismaClient {
-  const databaseUrl = process.env.DATABASE_URL;
-  
-  if (!databaseUrl) {
-    console.error("❌ DATABASE_URL environment variable is not configured!");
-    console.error("Please add DATABASE_URL in Vercel Dashboard > Project > Settings > Environment Variables");
-  }
-  
   return new PrismaClient({
     log: ["error"],
-    datasources: databaseUrl ? {
+    datasources: {
       db: {
-        url: databaseUrl,
+        url: DATABASE_URL,
       },
-    } : undefined,
+    },
   });
 }
 
