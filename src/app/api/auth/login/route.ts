@@ -34,6 +34,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if user is approved (except for super admin which is checked above)
+    if (!user.approved) {
+      return NextResponse.json(
+        { 
+          error: "Votre compte est en attente d'approbation. Vous serez notifié une fois votre compte activé.",
+          pendingApproval: true 
+        },
+        { status: 403 }
+      );
+    }
+
     // Simple password comparison (in production, use bcrypt)
     if (user.password !== password) {
       return NextResponse.json(

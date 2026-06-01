@@ -161,13 +161,14 @@ export async function GET() {
 
       if (Array.isArray(existingSuperAdmin) && existingSuperAdmin.length === 0) {
         await db.$executeRaw`
-          INSERT INTO "User" (id, email, password, name, role, active, "createdAt", "updatedAt")
+          INSERT INTO "User" (id, email, password, name, role, active, approved, "createdAt", "updatedAt")
           VALUES (
             'super_admin_001',
             'marketing@mozartevents.ma',
             'Marketing@@2030+',
             'Super Administrateur',
             'SUPER_ADMIN',
+            true,
             true,
             CURRENT_TIMESTAMP,
             CURRENT_TIMESTAMP
@@ -180,6 +181,62 @@ export async function GET() {
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       results.push(`Error creating super admin: ${error}`);
+    }
+
+    // Add approved column to User table
+    try {
+      const approvedColumnCheck = await db.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'User' 
+        AND column_name = 'approved'
+      `;
+
+      if (Array.isArray(approvedColumnCheck) && approvedColumnCheck.length === 0) {
+        await db.$executeRaw`
+          ALTER TABLE "User" ADD COLUMN "approved" BOOLEAN NOT NULL DEFAULT false
+        `;
+        results.push("Added approved column to User table");
+        
+        // Set existing users as approved (they were created before the approval system)
+        await db.$executeRaw`
+          UPDATE "User" SET approved = true WHERE email != 'marketing@mozartevents.ma'
+        `;
+        results.push("Approved existing users (created before approval system)");
+      } else {
+        results.push("approved column already exists in User table");
+      }
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      results.push(`Error checking/adding approved column to User: ${error}`);
+    }
+
+    // Add approved column to Company table
+    try {
+      const companyApprovedCheck = await db.$queryRaw`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'Company' 
+        AND column_name = 'approved'
+      `;
+
+      if (Array.isArray(companyApprovedCheck) && companyApprovedCheck.length === 0) {
+        await db.$executeRaw`
+          ALTER TABLE "Company" ADD COLUMN "approved" BOOLEAN NOT NULL DEFAULT false
+        `;
+        results.push("Added approved column to Company table");
+        
+        // Set existing companies as approved
+        await db.$executeRaw`
+          UPDATE "Company" SET approved = true
+        `;
+        results.push("Approved existing companies (created before approval system)");
+      } else {
+        results.push("approved column already exists in Company table");
+      }
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      results.push(`Error checking/adding approved column to Company: ${error}`);
     }
 
     return NextResponse.json({

@@ -37,17 +37,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Create company and admin user in a transaction
+    // Both will be pending approval (approved: false by default)
     const result = await db.$transaction(async (tx) => {
-      // Create company
+      // Create company (pending approval)
       const company = await tx.company.create({
         data: {
           name: companyName,
           email: email,
           phone: phone || null,
+          approved: false, // Requires super admin approval
         },
       });
 
-      // Create admin user for the company
+      // Create admin user for the company (pending approval)
       const user = await tx.user.create({
         data: {
           name,
@@ -55,6 +57,7 @@ export async function POST(request: NextRequest) {
           password, // In production, hash the password
           role: "ADMIN",
           companyId: company.id,
+          approved: false, // Requires super admin approval
         },
       });
 
@@ -63,6 +66,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      pendingApproval: true,
+      message: "Votre compte a été créé avec succès. Il est en attente d'approbation par l'administrateur. Vous recevrez une notification une fois votre compte activé.",
       user: {
         id: result.user.id,
         email: result.user.email,
@@ -70,6 +75,7 @@ export async function POST(request: NextRequest) {
         role: result.user.role,
         companyId: result.company.id,
         companyName: result.company.name,
+        approved: false,
       },
     });
   } catch (error) {

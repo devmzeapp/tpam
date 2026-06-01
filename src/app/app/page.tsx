@@ -3142,6 +3142,156 @@ function ReportsView() {
   );
 }
 
+// ==================== COMPANIES VIEW (SUPER ADMIN) ====================
+
+function CompaniesView() {
+  const [filter, setFilter] = useState<"all" | "pending" | "approved">("pending");
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["companies", filter],
+    queryFn: async () => {
+      const res = await fetch(`/api/super-admin/approve?status=${filter}`);
+      return res.json();
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async ({ companyId, action }: { companyId: string; action: "approve" | "reject" }) => {
+      const res = await fetch("/api/super-admin/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, action }),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["companies"] });
+      toast({ title: "Succès", description: "L'entreprise a été traitée avec succès" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Une erreur est survenue", variant: "destructive" });
+    },
+  });
+
+  const companies = data?.companies || [];
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Gestion des entreprises</h3>
+        <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
+          <TabsList>
+            <TabsTrigger value="pending">En attente</TabsTrigger>
+            <TabsTrigger value="approved">Approuvées</TabsTrigger>
+            <TabsTrigger value="all">Toutes</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {filter === "pending" && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Entreprises en attente d'approbation</AlertTitle>
+          <AlertDescription>
+            Ces entreprises se sont inscrites et attendent votre validation pour utiliser l'application.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid gap-4">
+        {isLoading ? (
+          <div className="text-center py-8">Chargement...</div>
+        ) : companies.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-8 text-muted-foreground">
+              {filter === "pending" ? "Aucune entreprise en attente d'approbation" : "Aucune entreprise trouvée"}
+            </CardContent>
+          </Card>
+        ) : (
+          companies.map((company: any) => (
+            <Card key={company.id} className={!company.approved ? "border-orange-200 bg-orange-50/50" : ""}>
+              <CardContent className="pt-6">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-3 flex-1">
+                    <div className="flex items-center gap-3">
+                      <Building2 className="h-8 w-8 text-primary" />
+                      <div>
+                        <h4 className="font-semibold text-lg">{company.name}</h4>
+                        <p className="text-sm text-muted-foreground">{company.email}</p>
+                      </div>
+                      <Badge variant={company.approved ? "default" : "secondary"}>
+                        {company.approved ? "Approuvée" : "En attente"}
+                      </Badge>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      {company.phone && (
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span>{company.phone}</span>
+                        </div>
+                      )}
+                      {company.city && (
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <span>{company.city}</span>
+                        </div>
+                      )}
+                      {company.ice && (
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span>ICE: {company.ice}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                        <span>Inscrite le {format(new Date(company.createdAt), "dd/MM/yyyy", { locale: fr })}</span>
+                      </div>
+                    </div>
+
+                    {company.adminUser && (
+                      <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+                        <p className="text-sm font-medium mb-1">Administrateur :</p>
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="font-medium">{company.adminUser.name}</span>
+                          <span className="text-muted-foreground">{company.adminUser.email}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {!company.approved && (
+                    <div className="flex gap-2 ml-4">
+                      <Button
+                        variant="default"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => approveMutation.mutate({ companyId: company.id, action: "approve" })}
+                        disabled={approveMutation.isPending}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Approuver
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() => approveMutation.mutate({ companyId: company.id, action: "reject" })}
+                        disabled={approveMutation.isPending}
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Rejeter
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ==================== USERS VIEW ====================
 
 function UsersView() {
@@ -3236,6 +3386,8 @@ export default function TPAMApp() {
     switch (currentView) {
       case "dashboard":
         return <DashboardView />;
+      case "companies":
+        return <CompaniesView />;
       case "planning":
         return <PlanningView />;
       case "services":
