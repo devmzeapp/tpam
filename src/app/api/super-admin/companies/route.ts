@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isSuperAdmin } from "@/lib/super-admin";
 
-// Get all companies with their approval status
+// Get all companies with their statistics
 export async function GET(request: NextRequest) {
   try {
-    // Get authorization from header or cookie
-    const authHeader = request.headers.get("authorization");
-    const userEmail = request.headers.get("x-user-email");
-    
-    // For now, we'll check if the request comes from an authenticated super admin
-    // In production, you'd use proper session management
-    
     const companies = await db.company.findMany({
       include: {
         users: {
@@ -21,11 +13,14 @@ export async function GET(request: NextRequest) {
             email: true,
             role: true,
             approved: true,
+            active: true,
             createdAt: true,
           }
         },
         _count: {
-          select: { users: true }
+          select: { 
+            users: true 
+          }
         }
       },
       orderBy: {
@@ -33,23 +28,57 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // Get additional stats for each company
+    const companiesWithStats = await Promise.all(
+      companies.map(async (company) => {
+        // Get counts from related tables through users
+        const users = company.users;
+        const userIds = users.map(u => u.id);
+        
+        // Count services
+        const servicesCount = userIds.length > 0 
+          ? await db.service.count({ where: { createdById: { in: userIds } } })
+          : 0;
+        
+        // Count invoices
+        const invoicesCount = userIds.length > 0
+          ? await db.invoice.count({ where: { createdById: { in: userIds } } })
+          : 0;
+        
+        // Count vehicles (global for now, should be per-company later)
+        const vehiclesCount = await db.vehicle.count();
+        
+        // Count drivers (global for now)
+        const driversCount = await db.driver.count();
+
+        return {
+          id: company.id,
+          name: company.name,
+          email: company.email,
+          phone: company.phone,
+          address: company.address,
+          city: company.city,
+          ice: company.ice,
+          active: company.active,
+          approved: company.approved,
+          plan: company.plan,
+          createdAt: company.createdAt,
+          usersCount: company._count.users,
+          adminUser: company.users.find(u => u.role === "ADMIN"),
+          users: company.users,
+          stats: {
+            services: servicesCount,
+            invoices: invoicesCount,
+            vehicles: vehiclesCount,
+            drivers: driversCount,
+          }
+        };
+      })
+    );
+
     return NextResponse.json({
       success: true,
-      companies: companies.map(company => ({
-        id: company.id,
-        name: company.name,
-        email: company.email,
-        phone: company.phone,
-        address: company.address,
-        city: company.city,
-        ice: company.ice,
-        active: company.active,
-        approved: company.approved,
-        plan: company.plan,
-        createdAt: company.createdAt,
-        usersCount: company._count.users,
-        adminUser: company.users.find(u => u.role === "ADMIN"),
-      }))
+      companies: companiesWithStats
     });
   } catch (error) {
     console.error("Error fetching companies:", error);

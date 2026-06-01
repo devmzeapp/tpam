@@ -48,6 +48,7 @@ import {
   Search,
   Filter,
   Download,
+  Upload,
   Printer,
   Eye,
   Edit,
@@ -83,6 +84,7 @@ import {
   Unlink,
   MessageCircle,
   Globe,
+  Key,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthPage } from "@/components/auth/auth-page";
@@ -3145,13 +3147,27 @@ function ReportsView() {
 // ==================== COMPANIES VIEW (SUPER ADMIN) ====================
 
 function CompaniesView() {
-  const [filter, setFilter] = useState<"all" | "pending" | "approved">("pending");
+  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "blocked">("pending");
+  const [selectedCompany, setSelectedCompany] = useState<any>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [showBackupDialog, setShowBackupDialog] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ["companies", filter],
     queryFn: async () => {
       const res = await fetch(`/api/super-admin/approve?status=${filter}`);
+      return res.json();
+    },
+  });
+
+  // Fetch all companies with stats
+  const { data: allCompanies } = useQuery({
+    queryKey: ["all-companies"],
+    queryFn: async () => {
+      const res = await fetch("/api/super-admin/companies");
       return res.json();
     },
   });
@@ -3167,6 +3183,7 @@ function CompaniesView() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["companies"] });
+      queryClient.invalidateQueries({ queryKey: ["all-companies"] });
       toast({ title: "Succès", description: "L'entreprise a été traitée avec succès" });
     },
     onError: () => {
@@ -3174,20 +3191,126 @@ function CompaniesView() {
     },
   });
 
+  const blockMutation = useMutation({
+    mutationFn: async ({ companyId, action }: { companyId: string; action: "block" | "unblock" }) => {
+      const res = await fetch(`/api/super-admin/company/${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["companies"] });
+      queryClient.invalidateQueries({ queryKey: ["all-companies"] });
+      toast({ title: "Succès", description: data.message });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Une erreur est survenue", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (companyId: string) => {
+      const res = await fetch(`/api/super-admin/company/${companyId}`, {
+        method: "DELETE",
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["companies"] });
+      queryClient.invalidateQueries({ queryKey: ["all-companies"] });
+      setShowDeleteDialog(false);
+      setSelectedCompany(null);
+      toast({ title: "Succès", description: data.message });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Une erreur est survenue", variant: "destructive" });
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: string; newPassword?: string }) => {
+      const res = await fetch("/api/super-admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, newPassword }),
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setShowResetDialog(false);
+      setNewPassword("");
+      toast({ 
+        title: "Mot de passe réinitialisé", 
+        description: `Nouveau mot de passe: ${data.newPassword}`,
+        duration: 10000
+      });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Une erreur est survenue", variant: "destructive" });
+    },
+  });
+
+  const exportBackup = async () => {
+    try {
+      const res = await fetch("/api/super-admin/backup");
+      const data = await res.json();
+      
+      if (data.success) {
+        const blob = new Blob([JSON.stringify(data.backup, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `tpam-backup-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast({ title: "Succès", description: "Sauvegarde exportée" });
+      }
+    } catch (e) {
+      toast({ title: "Erreur", description: "Erreur lors de l'export", variant: "destructive" });
+    }
+  };
+
   const companies = data?.companies || [];
+  const stats = allCompanies?.companies ? {
+    total: allCompanies.companies.length,
+    approved: allCompanies.companies.filter((c: any) => c.approved).length,
+    pending: allCompanies.companies.filter((c: any) => !c.approved).length,
+    blocked: allCompanies.companies.filter((c: any) => !c.active).length,
+  } : { total: 0, approved: 0, pending: 0, blocked: 0 };
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Gestion des entreprises</h3>
-        <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
-          <TabsList>
-            <TabsTrigger value="pending">En attente</TabsTrigger>
-            <TabsTrigger value="approved">Approuvées</TabsTrigger>
-            <TabsTrigger value="all">Toutes</TabsTrigger>
-          </TabsList>
-        </Tabs>
+      {/* Header with stats and backup buttons */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h3 className="text-lg font-semibold">Gestion des entreprises</h3>
+          <p className="text-sm text-muted-foreground">
+            {stats.total} entreprises • {stats.approved} actives • {stats.pending} en attente • {stats.blocked} bloquées
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={exportBackup}>
+            <Download className="h-4 w-4 mr-2" />
+            Exporter
+          </Button>
+          <Button variant="outline" onClick={() => setShowBackupDialog(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Importer
+          </Button>
+        </div>
       </div>
+
+      {/* Filter tabs */}
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
+        <TabsList>
+          <TabsTrigger value="pending">En attente ({stats.pending})</TabsTrigger>
+          <TabsTrigger value="approved">Approuvées ({stats.approved})</TabsTrigger>
+          <TabsTrigger value="blocked">Bloquées ({stats.blocked})</TabsTrigger>
+          <TabsTrigger value="all">Toutes ({stats.total})</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {filter === "pending" && (
         <Alert>
@@ -3199,6 +3322,7 @@ function CompaniesView() {
         </Alert>
       )}
 
+      {/* Company cards */}
       <div className="grid gap-4">
         {isLoading ? (
           <div className="text-center py-8">Chargement...</div>
@@ -3210,19 +3334,20 @@ function CompaniesView() {
           </Card>
         ) : (
           companies.map((company: any) => (
-            <Card key={company.id} className={!company.approved ? "border-orange-200 bg-orange-50/50" : ""}>
+            <Card key={company.id} className={!company.approved ? "border-orange-200 bg-orange-50/50 dark:bg-orange-950/20" : !company.active ? "border-red-200 bg-red-50/50 dark:bg-red-950/20" : ""}>
               <CardContent className="pt-6">
                 <div className="flex items-start justify-between">
                   <div className="space-y-3 flex-1">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <Building2 className="h-8 w-8 text-primary" />
                       <div>
                         <h4 className="font-semibold text-lg">{company.name}</h4>
                         <p className="text-sm text-muted-foreground">{company.email}</p>
                       </div>
-                      <Badge variant={company.approved ? "default" : "secondary"}>
-                        {company.approved ? "Approuvée" : "En attente"}
+                      <Badge variant={company.approved ? company.active ? "default" : "destructive" : "secondary"}>
+                        {!company.approved ? "En attente" : !company.active ? "Bloquée" : "Active"}
                       </Badge>
+                      <Badge variant="outline">{company.plan || "trial"}</Badge>
                     </div>
                     
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -3250,10 +3375,19 @@ function CompaniesView() {
                       </div>
                     </div>
 
+                    {/* Stats */}
+                    {company.stats && (
+                      <div className="flex gap-4 text-sm">
+                        <span className="text-muted-foreground">Services: <strong>{company.stats.services || 0}</strong></span>
+                        <span className="text-muted-foreground">Factures: <strong>{company.stats.invoices || 0}</strong></span>
+                        <span className="text-muted-foreground">Utilisateurs: <strong>{company.usersCount || 0}</strong></span>
+                      </div>
+                    )}
+
                     {company.adminUser && (
                       <div className="mt-4 p-3 bg-muted/50 rounded-lg">
                         <p className="text-sm font-medium mb-1">Administrateur :</p>
-                        <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-4 text-sm flex-wrap">
                           <span className="font-medium">{company.adminUser.name}</span>
                           <span className="text-muted-foreground">{company.adminUser.email}</span>
                         </div>
@@ -3261,33 +3395,182 @@ function CompaniesView() {
                     )}
                   </div>
 
-                  {!company.approved && (
-                    <div className="flex gap-2 ml-4">
-                      <Button
-                        variant="default"
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() => approveMutation.mutate({ companyId: company.id, action: "approve" })}
-                        disabled={approveMutation.isPending}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Approuver
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() => approveMutation.mutate({ companyId: company.id, action: "reject" })}
-                        disabled={approveMutation.isPending}
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        Rejeter
-                      </Button>
-                    </div>
-                  )}
+                  {/* Action buttons */}
+                  <div className="flex flex-col gap-2 ml-4">
+                    {!company.approved ? (
+                      <>
+                        <Button
+                          variant="default"
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => approveMutation.mutate({ companyId: company.id, action: "approve" })}
+                          disabled={approveMutation.isPending}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approuver
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={() => approveMutation.mutate({ companyId: company.id, action: "reject" })}
+                          disabled={approveMutation.isPending}
+                        >
+                          <XCircle className="h-4 w-4 mr-2" />
+                          Rejeter
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        {company.active ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => blockMutation.mutate({ companyId: company.id, action: "block" })}
+                            disabled={blockMutation.isPending}
+                          >
+                            <XCircle className="h-4 w-4 mr-2" />
+                            Bloquer
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="default"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => blockMutation.mutate({ companyId: company.id, action: "unblock" })}
+                            disabled={blockMutation.isPending}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Débloquer
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedCompany(company);
+                            setShowResetDialog(true);
+                          }}
+                        >
+                          <Key className="h-4 w-4 mr-2" />
+                          Reset MDP
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={() => {
+                            setSelectedCompany(company);
+                            setShowDeleteDialog(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Supprimer
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmer la suppression</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer l'entreprise "{selectedCompany?.name}" ? 
+              Cette action est irréversible et supprimera toutes les données associées.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Annuler</Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => deleteMutation.mutate(selectedCompany?.id)}
+              disabled={deleteMutation.isPending}
+            >
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset password dialog */}
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Réinitialiser le mot de passe</DialogTitle>
+            <DialogDescription>
+              Laissez vide pour générer un mot de passe aléatoire.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nouveau mot de passe (optionnel)</Label>
+              <Input 
+                value={newPassword} 
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Laissez vide pour auto-générer"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowResetDialog(false); setNewPassword(""); }}>Annuler</Button>
+            <Button 
+              onClick={() => {
+                if (selectedCompany?.adminUser) {
+                  resetPasswordMutation.mutate({ 
+                    userId: selectedCompany.adminUser.id, 
+                    newPassword: newPassword || undefined 
+                  });
+                }
+              }}
+              disabled={resetPasswordMutation.isPending}
+            >
+              Réinitialiser
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Backup import dialog */}
+      <Dialog open={showBackupDialog} onOpenChange={setShowBackupDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Importer une sauvegarde</DialogTitle>
+            <DialogDescription>
+              Sélectionnez un fichier de sauvegarde JSON à importer.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <input
+              type="file"
+              accept=".json"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const text = await file.text();
+                  try {
+                    const backup = JSON.parse(text);
+                    const res = await fetch("/api/super-admin/backup", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ backup, mode: "merge" }),
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      toast({ title: "Succès", description: "Sauvegarde importée" });
+                      queryClient.invalidateQueries({ queryKey: ["companies"] });
+                      setShowBackupDialog(false);
+                    } else {
+                      toast({ title: "Erreur", description: data.error, variant: "destructive" });
+                    }
+                  } catch (err) {
+                    toast({ title: "Erreur", description: "Fichier invalide", variant: "destructive" });
+                  }
+                }
+              }}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
