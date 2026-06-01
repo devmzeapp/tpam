@@ -17,6 +17,8 @@ import {
   CheckCircle,
   XCircle,
   Activity,
+  Database,
+  Settings,
 } from "lucide-react";
 import {
   LineChart,
