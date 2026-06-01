@@ -50,6 +50,8 @@ model Company {
   ice         String?
   active      Boolean  @default(true)
   approved    Boolean  @default(false) // Requires super admin approval
+  blocked     Boolean  @default(false) // Blocked for non-payment or other reasons
+  blockReason String? // Reason for blocking
   plan        String   @default("trial") // trial, starter, professional, enterprise
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

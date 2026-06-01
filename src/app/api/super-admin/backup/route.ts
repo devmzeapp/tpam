@@ -1,284 +1,169 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import postgres from "postgres";
+import { db, runAutoMigration } from "@/lib/db";
 
-const DATABASE_URL = process.env.DATABASE_URL || 
-  "postgresql://neondb_owner:npg_34VWfvXExqkd@ep-round-sky-an1ah6j4-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
-
-// GET - Export database backup
+// GET: Export database backup as JSON
 export async function GET(request: NextRequest) {
   try {
-    const sql = postgres(DATABASE_URL);
+    await runAutoMigration();
 
     // Get all data from all tables
-    const [
-      users,
-      companies,
-      vehicles,
-      drivers,
-      clients,
-      services,
-      invoices,
-      invoiceItems,
-      payments,
-      manifests,
-      settings
-    ] = await Promise.all([
-      sql`SELECT * FROM "User"`,
-      sql`SELECT * FROM "Company"`,
-      sql`SELECT * FROM "Vehicle"`,
-      sql`SELECT * FROM "Driver"`,
-      sql`SELECT * FROM "Client"`,
-      sql`SELECT * FROM "Service"`,
-      sql`SELECT * FROM "Invoice"`,
-      sql`SELECT * FROM "InvoiceItem"`,
-      sql`SELECT * FROM "Payment"`,
-      sql`SELECT * FROM "Manifest"`,
-      sql`SELECT * FROM "Setting"`
-    ]);
-
-    await sql.end();
-
     const backup = {
-      version: "1.0.0",
       timestamp: new Date().toISOString(),
+      version: "1.0.0",
       data: {
-        users,
-        companies,
-        vehicles,
-        drivers,
-        clients,
-        services,
-        invoices,
-        invoiceItems,
-        payments,
-        manifests,
-        settings
+        companies: await db.$queryRaw`SELECT * FROM "Company"`,
+        users: await db.$queryRaw`SELECT * FROM "User"`,
+        vehicles: await db.$queryRaw`SELECT * FROM "Vehicle"`,
+        drivers: await db.$queryRaw`SELECT * FROM "Driver"`,
+        clients: await db.$queryRaw`SELECT * FROM "Client"`,
+        services: await db.$queryRaw`SELECT * FROM "Service"`,
+        invoices: await db.$queryRaw`SELECT * FROM "Invoice"`,
+        invoiceItems: await db.$queryRaw`SELECT * FROM "InvoiceItem"`,
+        payments: await db.$queryRaw`SELECT * FROM "Payment"`,
+        manifests: await db.$queryRaw`SELECT * FROM "Manifest"`,
+        settings: await db.$queryRaw`SELECT * FROM "Setting"`,
       },
-      stats: {
-        users: users.length,
-        companies: companies.length,
-        vehicles: vehicles.length,
-        drivers: drivers.length,
-        clients: clients.length,
-        services: services.length,
-        invoices: invoices.length,
-        payments: payments.length,
-        manifests: manifests.length
-      }
     };
 
+    // Return JSON with backup data
     return NextResponse.json({
       success: true,
       backup,
-      exportDate: backup.timestamp,
-      message: "Sauvegarde exportée avec succès"
     });
-  } catch (error: any) {
-    console.error("Export error:", error);
-    return NextResponse.json({
-      success: false,
-      error: error.message
-    }, { status: 500 });
+  } catch (error) {
+    console.error("Error creating backup:", error);
+    return NextResponse.json(
+      { error: "Erreur lors de la création de la sauvegarde" },
+      { status: 500 }
+    );
   }
 }
 
-// POST - Import database backup
+// POST: Import database backup from JSON
 export async function POST(request: NextRequest) {
   try {
+    await runAutoMigration();
+
     const body = await request.json();
-    const { backup, mode = "merge" } = body; // mode: "merge" or "replace"
+    const backup = body.backup;
 
     if (!backup || !backup.data) {
-      return NextResponse.json({ error: "Données de sauvegarde invalides" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Format de sauvegarde invalide" },
+        { status: 400 }
+      );
     }
 
-    const sql = postgres(DATABASE_URL);
     const results: string[] = [];
 
-    try {
-      // If mode is "replace", clear existing data first (dangerous!)
-      if (mode === "replace") {
-        results.push("Mode: Remplacement complet");
-        await sql`TRUNCATE TABLE "InvoiceItem", "Payment", "Invoice", "Manifest", "Service", "Client", "Driver", "Vehicle", "User", "Company" CASCADE`;
-        results.push("Tables vidées");
-      }
-
-      const { data } = backup;
-
-      // Import companies
-      if (data.companies && data.companies.length > 0) {
-        for (const company of data.companies) {
-          try {
-            await sql`
-              INSERT INTO "Company" (${sql(Object.keys(company))})
-              VALUES (${sql(Object.values(company))})
-              ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name,
-                email = EXCLUDED.email,
-                phone = EXCLUDED.phone,
-                active = EXCLUDED.active,
-                approved = EXCLUDED.approved,
-                plan = EXCLUDED.plan
-            `;
-          } catch (e) {
-            // Skip duplicates in merge mode
-          }
+    // Restore in order to respect foreign key constraints
+    // 1. First restore companies (no dependencies)
+    if (backup.data.companies && Array.isArray(backup.data.companies)) {
+      for (const company of backup.data.companies) {
+        try {
+          await db.$executeRaw`
+            INSERT INTO "Company" (id, name, email, phone, address, city, ice, active, approved, blocked, "blockReason", plan, "createdAt", "updatedAt")
+            VALUES (${company.id}, ${company.name}, ${company.email}, ${company.phone || null}, ${company.address || null}, ${company.city || null}, ${company.ice || null}, ${company.active ?? true}, ${company.approved ?? false}, ${company.blocked ?? false}, ${company.blockReason || null}, ${company.plan || 'trial'}, ${company.createdAt}, ${company.updatedAt})
+            ON CONFLICT (id) DO UPDATE SET
+              name = ${company.name},
+              email = ${company.email},
+              phone = ${company.phone || null},
+              active = ${company.active ?? true},
+              approved = ${company.approved ?? false},
+              blocked = ${company.blocked ?? false},
+              "updatedAt" = CURRENT_TIMESTAMP
+          `;
+        } catch (e) {
+          results.push(`Warning: Could not restore company ${company.id}`);
         }
-        results.push(`Entreprises: ${data.companies.length}`);
       }
-
-      // Import users (skip super admin to preserve credentials)
-      if (data.users && data.users.length > 0) {
-        for (const user of data.users) {
-          if (user.email === 'marketing@mozartevents.ma') continue;
-          try {
-            await sql`
-              INSERT INTO "User" (${sql(Object.keys(user))})
-              VALUES (${sql(Object.values(user))})
-              ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name,
-                email = EXCLUDED.email,
-                role = EXCLUDED.role,
-                active = EXCLUDED.active,
-                approved = EXCLUDED.approved
-            `;
-          } catch (e) {
-            // Skip duplicates in merge mode
-          }
-        }
-        results.push(`Utilisateurs: ${data.users.length}`);
-      }
-
-      // Import vehicles
-      if (data.vehicles && data.vehicles.length > 0) {
-        for (const vehicle of data.vehicles) {
-          try {
-            await sql`
-              INSERT INTO "Vehicle" (${sql(Object.keys(vehicle))})
-              VALUES (${sql(Object.values(vehicle))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Véhicules: ${data.vehicles.length}`);
-      }
-
-      // Import drivers
-      if (data.drivers && data.drivers.length > 0) {
-        for (const driver of data.drivers) {
-          try {
-            await sql`
-              INSERT INTO "Driver" (${sql(Object.keys(driver))})
-              VALUES (${sql(Object.values(driver))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Chauffeurs: ${data.drivers.length}`);
-      }
-
-      // Import clients
-      if (data.clients && data.clients.length > 0) {
-        for (const client of data.clients) {
-          try {
-            await sql`
-              INSERT INTO "Client" (${sql(Object.keys(client))})
-              VALUES (${sql(Object.values(client))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Clients: ${data.clients.length}`);
-      }
-
-      // Import services
-      if (data.services && data.services.length > 0) {
-        for (const service of data.services) {
-          try {
-            await sql`
-              INSERT INTO "Service" (${sql(Object.keys(service))})
-              VALUES (${sql(Object.values(service))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Prestations: ${data.services.length}`);
-      }
-
-      // Import invoices
-      if (data.invoices && data.invoices.length > 0) {
-        for (const invoice of data.invoices) {
-          try {
-            await sql`
-              INSERT INTO "Invoice" (${sql(Object.keys(invoice))})
-              VALUES (${sql(Object.values(invoice))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Factures: ${data.invoices.length}`);
-      }
-
-      // Import invoice items
-      if (data.invoiceItems && data.invoiceItems.length > 0) {
-        for (const item of data.invoiceItems) {
-          try {
-            await sql`
-              INSERT INTO "InvoiceItem" (${sql(Object.keys(item))})
-              VALUES (${sql(Object.values(item))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Lignes de facture: ${data.invoiceItems.length}`);
-      }
-
-      // Import payments
-      if (data.payments && data.payments.length > 0) {
-        for (const payment of data.payments) {
-          try {
-            await sql`
-              INSERT INTO "Payment" (${sql(Object.keys(payment))})
-              VALUES (${sql(Object.values(payment))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Paiements: ${data.payments.length}`);
-      }
-
-      // Import manifests
-      if (data.manifests && data.manifests.length > 0) {
-        for (const manifest of data.manifests) {
-          try {
-            await sql`
-              INSERT INTO "Manifest" (${sql(Object.keys(manifest))})
-              VALUES (${sql(Object.values(manifest))})
-              ON CONFLICT (id) DO NOTHING
-            `;
-          } catch (e) {}
-        }
-        results.push(`Manifestes: ${data.manifests.length}`);
-      }
-
-      await sql.end();
-
-      return NextResponse.json({
-        success: true,
-        message: "Sauvegarde importée avec succès",
-        results
-      });
-
-    } catch (error: any) {
-      await sql.end();
-      throw error;
+      results.push(`Restored ${backup.data.companies.length} companies`);
     }
-  } catch (error: any) {
-    console.error("Import error:", error);
+
+    // 2. Restore users (depends on companies)
+    if (backup.data.users && Array.isArray(backup.data.users)) {
+      for (const user of backup.data.users) {
+        try {
+          // Skip super admin from backup to preserve existing
+          if (user.email === 'marketing@mozartevents.ma') continue;
+          
+          await db.$executeRaw`
+            INSERT INTO "User" (id, email, password, name, role, active, approved, "companyId", "createdAt", "updatedAt")
+            VALUES (${user.id}, ${user.email}, ${user.password}, ${user.name}, ${user.role}, ${user.active ?? true}, ${user.approved ?? false}, ${user.companyId || null}, ${user.createdAt}, ${user.updatedAt})
+            ON CONFLICT (id) DO UPDATE SET
+              email = ${user.email},
+              name = ${user.name},
+              role = ${user.role},
+              active = ${user.active ?? true},
+              approved = ${user.approved ?? false},
+              "companyId" = ${user.companyId || null},
+              "updatedAt" = CURRENT_TIMESTAMP
+          `;
+        } catch (e) {
+          results.push(`Warning: Could not restore user ${user.id}`);
+        }
+      }
+      results.push(`Restored ${backup.data.users.length} users`);
+    }
+
+    // 3. Restore clients
+    if (backup.data.clients && Array.isArray(backup.data.clients)) {
+      for (const client of backup.data.clients) {
+        try {
+          await db.$executeRaw`
+            INSERT INTO "Client" (id, name, "contactName", email, phone, address, city, ice, cnss, if, rc, notes, "createdAt", "updatedAt")
+            VALUES (${client.id}, ${client.name}, ${client.contactName || null}, ${client.email || null}, ${client.phone || null}, ${client.address || null}, ${client.city || null}, ${client.ice || null}, ${client.cnss || null}, ${client.if || null}, ${client.rc || null}, ${client.notes || null}, ${client.createdAt}, ${client.updatedAt})
+            ON CONFLICT (id) DO NOTHING
+          `;
+        } catch (e) {
+          results.push(`Warning: Could not restore client ${client.id}`);
+        }
+      }
+      results.push(`Restored ${backup.data.clients.length} clients`);
+    }
+
+    // 4. Restore vehicles
+    if (backup.data.vehicles && Array.isArray(backup.data.vehicles)) {
+      for (const vehicle of backup.data.vehicles) {
+        try {
+          await db.$executeRaw`
+            INSERT INTO "Vehicle" (id, brand, model, registration, capacity, type, status, notes, "createdAt", "updatedAt")
+            VALUES (${vehicle.id}, ${vehicle.brand}, ${vehicle.model}, ${vehicle.registration}, ${vehicle.capacity}, ${vehicle.type || null}, ${vehicle.status || 'available'}, ${vehicle.notes || null}, ${vehicle.createdAt}, ${vehicle.updatedAt})
+            ON CONFLICT (id) DO NOTHING
+          `;
+        } catch (e) {
+          results.push(`Warning: Could not restore vehicle ${vehicle.id}`);
+        }
+      }
+      results.push(`Restored ${backup.data.vehicles.length} vehicles`);
+    }
+
+    // 5. Restore drivers
+    if (backup.data.drivers && Array.isArray(backup.data.drivers)) {
+      for (const driver of backup.data.drivers) {
+        try {
+          await db.$executeRaw`
+            INSERT INTO "Driver" (id, "firstName", "lastName", phone, email, "licenseNumber", available, notes, "createdAt", "updatedAt")
+            VALUES (${driver.id}, ${driver.firstName}, ${driver.lastName}, ${driver.phone}, ${driver.email || null}, ${driver.licenseNumber || null}, ${driver.available ?? true}, ${driver.notes || null}, ${driver.createdAt}, ${driver.updatedAt})
+            ON CONFLICT (id) DO NOTHING
+          `;
+        } catch (e) {
+          results.push(`Warning: Could not restore driver ${driver.id}`);
+        }
+      }
+      results.push(`Restored ${backup.data.drivers.length} drivers`);
+    }
+
     return NextResponse.json({
-      success: false,
-      error: error.message
-    }, { status: 500 });
+      success: true,
+      message: "Sauvegarde importée avec succès",
+      results,
+    });
+  } catch (error) {
+    console.error("Error restoring backup:", error);
+    return NextResponse.json(
+      { error: "Erreur lors de la restauration: " + (error instanceof Error ? error.message : String(error)) },
+      { status: 500 }
+    );
   }
 }

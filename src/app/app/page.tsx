@@ -3275,9 +3275,9 @@ function CompaniesView() {
   const companies = data?.companies || [];
   const stats = allCompanies?.companies ? {
     total: allCompanies.companies.length,
-    approved: allCompanies.companies.filter((c: any) => c.approved).length,
+    approved: allCompanies.companies.filter((c: any) => c.approved && !c.blocked).length,
     pending: allCompanies.companies.filter((c: any) => !c.approved).length,
-    blocked: allCompanies.companies.filter((c: any) => !c.active).length,
+    blocked: allCompanies.companies.filter((c: any) => c.blocked).length,
   } : { total: 0, approved: 0, pending: 0, blocked: 0 };
 
   return (
@@ -3334,7 +3334,7 @@ function CompaniesView() {
           </Card>
         ) : (
           companies.map((company: any) => (
-            <Card key={company.id} className={!company.approved ? "border-orange-200 bg-orange-50/50 dark:bg-orange-950/20" : !company.active ? "border-red-200 bg-red-50/50 dark:bg-red-950/20" : ""}>
+            <Card key={company.id} className={!company.approved ? "border-orange-200 bg-orange-50/50 dark:bg-orange-950/20" : company.blocked ? "border-red-200 bg-red-50/50 dark:bg-red-950/20" : ""}>
               <CardContent className="pt-6">
                 <div className="flex items-start justify-between">
                   <div className="space-y-3 flex-1">
@@ -3344,8 +3344,8 @@ function CompaniesView() {
                         <h4 className="font-semibold text-lg">{company.name}</h4>
                         <p className="text-sm text-muted-foreground">{company.email}</p>
                       </div>
-                      <Badge variant={company.approved ? company.active ? "default" : "destructive" : "secondary"}>
-                        {!company.approved ? "En attente" : !company.active ? "Bloquée" : "Active"}
+                      <Badge variant={company.approved ? company.blocked ? "destructive" : "default" : "secondary"}>
+                        {!company.approved ? "En attente" : company.blocked ? "Bloquée" : "Active"}
                       </Badge>
                       <Badge variant="outline">{company.plan || "trial"}</Badge>
                     </div>
@@ -3419,7 +3419,7 @@ function CompaniesView() {
                       </>
                     ) : (
                       <>
-                        {company.active ? (
+                        {!company.blocked ? (
                           <Button
                             variant="outline"
                             onClick={() => blockMutation.mutate({ companyId: company.id, action: "block" })}

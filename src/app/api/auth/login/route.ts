@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, runAutoMigration } from "@/lib/db";
 import { isSuperAdmin, getSuperAdminUser } from "@/lib/super-admin";
 
 export async function POST(request: NextRequest) {
   try {
+    // Run auto migration first to ensure database is up to date
+    await runAutoMigration();
+
     const { email, password } = await request.json();
 
     if (!email || !password) {
@@ -22,19 +25,40 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const user = await db.user.findUnique({
-      where: { email },
-      include: { company: true },
-    });
+    // Use raw SQL to avoid Prisma schema issues
+    const userResult = await db.$queryRaw`
+      SELECT u.id, u.email, u.password, u.name, u.role, u.active, u.approved, u."companyId",
+             c.name as "companyName", c.blocked as "companyBlocked"
+      FROM "User" u
+      LEFT JOIN "Company" c ON u."companyId" = c.id
+      WHERE u.email = ${email}
+    `;
 
-    if (!user || !user.active) {
+    if (!Array.isArray(userResult) || userResult.length === 0) {
       return NextResponse.json(
-        { error: "Utilisateur non trouvé ou inactif" },
+        { error: "Utilisateur non trouvé" },
         { status: 401 }
       );
     }
 
-    // Check if user is approved (except for super admin which is checked above)
+    const user = userResult[0] as any;
+
+    if (!user.active) {
+      return NextResponse.json(
+        { error: "Utilisateur inactif" },
+        { status: 401 }
+      );
+    }
+
+    // Check if company is blocked
+    if (user.companyBlocked) {
+      return NextResponse.json(
+        { error: "Votre compte entreprise est bloqué. Veuillez contacter l'administrateur." },
+        { status: 403 }
+      );
+    }
+
+    // Check if user is approved
     if (!user.approved) {
       return NextResponse.json(
         { 
@@ -61,13 +85,13 @@ export async function POST(request: NextRequest) {
         name: user.name,
         role: user.role,
         companyId: user.companyId,
-        companyName: user.company?.name,
+        companyName: user.companyName,
       },
     });
   } catch (error) {
     console.error("Login error:", error);
     return NextResponse.json(
-      { error: "Erreur de connexion" },
+      { error: "Erreur de connexion: " + (error instanceof Error ? error.message : String(error)) },
       { status: 500 }
     );
   }

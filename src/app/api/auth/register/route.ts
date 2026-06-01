@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, runAutoMigration } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
+    // Run auto migration first to ensure database is up to date
+    await runAutoMigration();
+
     const { name, email, password, companyName, phone } = await request.json();
 
     if (!name || !email || !password || !companyName) {
@@ -12,12 +15,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if email already exists
-    const existingUser = await db.user.findUnique({
-      where: { email },
-    });
+    // Use raw SQL to check if email already exists (avoids Prisma schema issues)
+    const existingUserResult = await db.$queryRaw`
+      SELECT id, email FROM "User" WHERE email = ${email}
+    `;
 
-    if (existingUser) {
+    if (Array.isArray(existingUserResult) && existingUserResult.length > 0) {
       return NextResponse.json(
         { error: "Cet email est déjà utilisé" },
         { status: 400 }
@@ -25,63 +28,51 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if company email already exists
-    const existingCompany = await db.company.findUnique({
-      where: { email },
-    });
+    const existingCompanyResult = await db.$queryRaw`
+      SELECT id, email FROM "Company" WHERE email = ${email}
+    `;
 
-    if (existingCompany) {
+    if (Array.isArray(existingCompanyResult) && existingCompanyResult.length > 0) {
       return NextResponse.json(
         { error: "Une entreprise avec cet email existe déjà" },
         { status: 400 }
       );
     }
 
-    // Create company and admin user in a transaction
-    // Both will be pending approval (approved: false by default)
-    const result = await db.$transaction(async (tx) => {
-      // Create company (pending approval)
-      const company = await tx.company.create({
-        data: {
-          name: companyName,
-          email: email,
-          phone: phone || null,
-          approved: false, // Requires super admin approval
-        },
-      });
+    // Generate IDs
+    const companyId = `company_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Create admin user for the company (pending approval)
-      const user = await tx.user.create({
-        data: {
-          name,
-          email,
-          password, // In production, hash the password
-          role: "ADMIN",
-          companyId: company.id,
-          approved: false, // Requires super admin approval
-        },
-      });
+    // Create company using raw SQL
+    await db.$executeRaw`
+      INSERT INTO "Company" (id, name, email, phone, active, approved, blocked, plan, "createdAt", "updatedAt")
+      VALUES (${companyId}, ${companyName}, ${email}, ${phone || null}, true, false, false, 'trial', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `;
 
-      return { company, user };
-    });
+    // Create user using raw SQL
+    await db.$executeRaw`
+      INSERT INTO "User" (id, name, email, password, role, active, approved, "companyId", "createdAt", "updatedAt")
+      VALUES (${userId}, ${name}, ${email}, ${password}, 'ADMIN', true, false, ${companyId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `;
 
     return NextResponse.json({
       success: true,
       pendingApproval: true,
       message: "Votre compte a été créé avec succès. Il est en attente d'approbation par l'administrateur. Vous recevrez une notification une fois votre compte activé.",
       user: {
-        id: result.user.id,
-        email: result.user.email,
-        name: result.user.name,
-        role: result.user.role,
-        companyId: result.company.id,
-        companyName: result.company.name,
+        id: userId,
+        email: email,
+        name: name,
+        role: "ADMIN",
+        companyId: companyId,
+        companyName: companyName,
         approved: false,
       },
     });
   } catch (error) {
     console.error("Registration error:", error);
     return NextResponse.json(
-      { error: "Erreur lors de l'inscription" },
+      { error: "Erreur lors de l'inscription: " + (error instanceof Error ? error.message : String(error)) },
       { status: 500 }
     );
   }
