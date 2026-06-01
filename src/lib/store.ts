@@ -1,12 +1,14 @@
 import { create } from "zustand";
 
-export type UserRole = "ADMIN" | "AGENT" | "COMPTABLE";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "AGENT" | "COMPTABLE";
 
 export interface User {
   id: string;
   email: string;
   name: string;
   role: UserRole;
+  companyId?: string;
+  companyName?: string;
 }
 
 export type ViewType = 
@@ -22,6 +24,7 @@ export type ViewType =
   | "manifests" 
   | "reports"
   | "users"
+  | "companies"
   | "settings";
 
 interface AppState {
@@ -38,6 +41,11 @@ interface AppState {
   // UI State
   sidebarOpen: boolean;
   toggleSidebar: () => void;
+  
+  // Theme
+  theme: "light" | "dark";
+  setTheme: (theme: "light" | "dark") => void;
+  toggleTheme: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -54,4 +62,9 @@ export const useAppStore = create<AppState>((set) => ({
   // UI State
   sidebarOpen: true,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  
+  // Theme
+  theme: "light",
+  setTheme: (theme) => set({ theme }),
+  toggleTheme: () => set((state) => ({ theme: state.theme === "light" ? "dark" : "light" })),
 }));

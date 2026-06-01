@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { isSuperAdmin, getSuperAdminUser } from "@/lib/super-admin";
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,8 +13,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check for super admin first
+    if (isSuperAdmin(email, password)) {
+      const superAdmin = getSuperAdminUser();
+      return NextResponse.json({
+        success: true,
+        user: superAdmin,
+      });
+    }
+
     const user = await db.user.findUnique({
       where: { email },
+      include: { company: true },
     });
 
     if (!user || !user.active) {
@@ -38,6 +49,8 @@ export async function POST(request: NextRequest) {
         email: user.email,
         name: user.name,
         role: user.role,
+        companyId: user.companyId,
+        companyName: user.company?.name,
       },
     });
   } catch (error) {

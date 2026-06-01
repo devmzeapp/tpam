@@ -81,8 +81,11 @@ import {
   Banknote,
   Link2,
   Unlink,
+  MessageCircle,
+  Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AuthPage } from "@/components/auth/auth-page";
 
 // ==================== TYPES ====================
 
@@ -395,120 +398,8 @@ const api = {
 // ==================== LOGIN COMPONENT ====================
 
 function LoginPage() {
-  const [email, setEmail] = useState("admin@tpam.ma");
-  const [password, setPassword] = useState("admin123");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const setUser = useAppStore((s) => s.setUser);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (data.error?.includes("non trouvé")) {
-          const seedRes = await fetch("/api/seed");
-          if (seedRes.ok) {
-            const retryRes = await fetch("/api/auth/login", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ email, password }),
-            });
-            const retryData = await retryRes.json();
-            
-            if (retryRes.ok && retryData.user) {
-              setUser(retryData.user);
-              toast({ title: "Connexion réussie", description: `Bienvenue, ${retryData.user.name}!` });
-              return;
-            }
-          }
-        }
-        throw new Error(data.error || "Erreur de connexion");
-      }
-
-      if (data.user) {
-        setUser(data.user);
-        toast({ title: "Connexion réussie", description: `Bienvenue, ${data.user.name}!` });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Email ou mot de passe incorrect";
-      setError(message);
-      toast({ title: "Erreur de connexion", description: message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
-      <div className="w-full max-w-md">
-        <Card className="border-0 shadow-2xl">
-          <CardHeader className="text-center pb-2">
-            <div className="flex justify-center mb-4">
-              <div className="w-24 h-24 rounded-xl overflow-hidden bg-white shadow-lg">
-                <img src="/tpam-logo.png" alt="TPAM Logo" className="w-full h-full object-contain" />
-              </div>
-            </div>
-            <CardTitle className="text-2xl font-bold">TPAM</CardTitle>
-            <CardDescription>Transportation Planning & Accounting Management</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="admin@tpam.ma"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Mot de passe</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Connexion..." : "Se connecter"}
-              </Button>
-            </form>
-            <div className="mt-6 text-center text-sm text-muted-foreground">
-              <p className="font-medium mb-2">Comptes de démonstration:</p>
-              <div className="space-y-1 text-xs">
-                <p><Badge variant="outline" className="mr-2">Admin</Badge> admin@tpam.ma / admin123</p>
-                <p><Badge variant="outline" className="mr-2">Agent</Badge> agent@tpam.ma / agent123</p>
-                <p><Badge variant="outline" className="mr-2">Comptable</Badge> compta@tpam.ma / compta123</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+  return <AuthPage onLogin={setUser} />;
 }
 
 // ==================== SIDEBAR COMPONENT ====================
@@ -518,17 +409,18 @@ function Sidebar() {
 
   const menuItems: { id: ViewType; label: string; icon: React.ReactNode; roles?: string[] }[] = [
     { id: "dashboard", label: "Tableau de bord", icon: <LayoutDashboard className="h-5 w-5" /> },
+    { id: "companies", label: "Entreprises", icon: <Building2 className="h-5 w-5" />, roles: ["SUPER_ADMIN"] },
     { id: "planning", label: "Planning", icon: <CalendarDays className="h-5 w-5" /> },
     { id: "services", label: "Prestations", icon: <Truck className="h-5 w-5" /> },
     { id: "vehicles", label: "Véhicules", icon: <Car className="h-5 w-5" /> },
     { id: "drivers", label: "Chauffeurs", icon: <UserCheck className="h-5 w-5" /> },
     { id: "clients", label: "Clients", icon: <Building2 className="h-5 w-5" /> },
     { id: "invoices", label: "Factures", icon: <Receipt className="h-5 w-5" /> },
-    { id: "debtors", label: "Comptes Débiteurs", icon: <Wallet className="h-5 w-5" />, roles: ["ADMIN", "COMPTABLE"] },
-    { id: "payments", label: "Paiements", icon: <CreditCard className="h-5 w-5" />, roles: ["ADMIN", "COMPTABLE"] },
+    { id: "debtors", label: "Comptes Débiteurs", icon: <Wallet className="h-5 w-5" />, roles: ["ADMIN", "COMPTABLE", "SUPER_ADMIN"] },
+    { id: "payments", label: "Paiements", icon: <CreditCard className="h-5 w-5" />, roles: ["ADMIN", "COMPTABLE", "SUPER_ADMIN"] },
     { id: "manifests", label: "Manifestes", icon: <ClipboardList className="h-5 w-5" /> },
     { id: "reports", label: "Rapports", icon: <BarChart3 className="h-5 w-5" /> },
-    { id: "users", label: "Utilisateurs", icon: <Users className="h-5 w-5" />, roles: ["ADMIN"] },
+    { id: "users", label: "Utilisateurs", icon: <Users className="h-5 w-5" />, roles: ["ADMIN", "SUPER_ADMIN"] },
   ];
 
   const filteredItems = menuItems.filter(
@@ -593,6 +485,7 @@ function Header() {
 
   const viewTitles: Record<ViewType, string> = {
     dashboard: "Tableau de bord",
+    companies: "Entreprises",
     planning: "Planning",
     services: "Prestations",
     vehicles: "Véhicules",
@@ -607,6 +500,10 @@ function Header() {
     settings: "Paramètres",
   };
 
+  const handleWhatsAppSupport = () => {
+    window.open("https://wa.me/212600000000?text=Bonjour, j'ai besoin d'aide avec TPAM", "_blank");
+  };
+
   return (
     <header className="h-16 border-b bg-card px-4 flex items-center justify-between">
       <div className="flex items-center gap-4">
@@ -618,6 +515,9 @@ function Header() {
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon">
           <Bell className="h-5 w-5" />
+        </Button>
+        <Button variant="ghost" size="icon" onClick={handleWhatsAppSupport} title="Support WhatsApp">
+          <MessageCircle className="h-5 w-5 text-green-500" />
         </Button>
       </div>
     </header>

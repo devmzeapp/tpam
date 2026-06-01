@@ -29,6 +29,9 @@ import {
   ClipboardList,
   Car,
   DollarSign,
+  MessageCircle,
+  Moon,
+  Sun,
 } from "lucide-react";
 import Link from "next/link";
 import { VERSION } from "@/lib/version";
@@ -36,6 +39,8 @@ import { VERSION } from "@/lib/version";
 export function LandingPage() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [language, setLanguage] = useState<"fr" | "en">("fr");
 
   useEffect(() => {
     const handleScroll = () => {
@@ -44,6 +49,39 @@ export function LandingPage() {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === "light" ? "dark" : "light";
+    setTheme(newTheme);
+    document.documentElement.classList.toggle("dark", newTheme === "dark");
+  };
+
+  const handleWhatsAppSupport = () => {
+    window.open("https://wa.me/212600000000?text=Bonjour, j'ai besoin d'aide avec TPAM", "_blank");
+  };
+
+  const texts = {
+    fr: {
+      features: "Fonctionnalités",
+      pricing: "Tarifs",
+      contact: "Contact",
+      accessApp: "Accéder à l'app",
+      startNow: "Commencer maintenant",
+      viewDemo: "Voir la démo",
+      trustedBy: "+500 entreprises nous font confiance",
+    },
+    en: {
+      features: "Features",
+      pricing: "Pricing",
+      contact: "Contact",
+      accessApp: "Access App",
+      startNow: "Start Now",
+      viewDemo: "View Demo",
+      trustedBy: "+500 companies trust us",
+    },
+  };
+
+  const t = texts[language];
 
   const features = [
     {
@@ -128,12 +166,16 @@ export function LandingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={`min-h-screen transition-colors duration-300 ${
+      theme === "dark" ? "bg-slate-900 text-white" : "bg-background"
+    }`}>
       {/* Navigation */}
       <nav
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           isScrolled
-            ? "bg-white/95 backdrop-blur-md shadow-lg border-b border-border"
+            ? theme === "dark" 
+              ? "bg-slate-900/95 backdrop-blur-md shadow-lg border-b border-slate-700"
+              : "bg-white/95 backdrop-blur-md shadow-lg border-b border-border"
             : "bg-transparent"
         }`}
       >
@@ -141,11 +183,15 @@ export function LandingPage() {
           <div className="flex items-center justify-between h-20">
             {/* Logo */}
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center shadow-lg">
-                <Truck className="h-7 w-7 text-white" />
+              <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg">
+                <svg width="32" height="32" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <text x="50%" y="55%" dominantBaseline="middle" textAnchor="middle" fontFamily="Arial, sans-serif" fontSize="36" fontWeight="bold">
+                    <tspan fill="#003366">T</tspan><tspan fill="#003366">P</tspan><tspan fill="#FF6600">A</tspan><tspan fill="#CC0000">M</tspan>
+                  </text>
+                </svg>
               </div>
               <div>
-                <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+                <span className={`text-2xl font-bold ${theme === "dark" ? "text-white" : "text-[#003366]"}`}>
                   TPAM
                 </span>
                 <Badge variant="secondary" className="ml-2 text-xs">
@@ -155,44 +201,71 @@ export function LandingPage() {
             </div>
 
             {/* Desktop Menu */}
-            <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors font-medium">
-                Fonctionnalités
+            <div className="hidden md:flex items-center gap-6">
+              <a href="#features" className={`${theme === "dark" ? "text-slate-300 hover:text-white" : "text-muted-foreground hover:text-foreground"} transition-colors font-medium`}>
+                {t.features}
               </a>
-              <a href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors font-medium">
-                Tarifs
+              <a href="#pricing" className={`${theme === "dark" ? "text-slate-300 hover:text-white" : "text-muted-foreground hover:text-foreground"} transition-colors font-medium`}>
+                {t.pricing}
               </a>
-              <a href="#contact" className="text-muted-foreground hover:text-foreground transition-colors font-medium">
-                Contact
+              <a href="#contact" className={`${theme === "dark" ? "text-slate-300 hover:text-white" : "text-muted-foreground hover:text-foreground"} transition-colors font-medium`}>
+                {t.contact}
               </a>
+              
+              {/* Theme Toggle */}
+              <Button variant="ghost" size="icon" onClick={toggleTheme}>
+                {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+              </Button>
+              
+              {/* Language Toggle */}
+              <Button variant="ghost" size="icon" onClick={() => setLanguage(language === "fr" ? "en" : "fr")}>
+                <Globe className="h-5 w-5" />
+              </Button>
+              
+              {/* WhatsApp Support */}
+              <Button variant="ghost" size="icon" onClick={handleWhatsAppSupport} title="Support WhatsApp">
+                <MessageCircle className="h-5 w-5 text-green-500" />
+              </Button>
+              
               <Link href="/app">
-                <Button className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg">
-                  Accéder à l'app
+                <Button className="bg-[#003366] hover:bg-[#004080] shadow-lg">
+                  {t.accessApp}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
             </div>
 
             {/* Mobile Menu Button */}
-            <button
-              className="md:hidden p-2"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </button>
+            <div className="md:hidden flex items-center gap-2">
+              <Button variant="ghost" size="icon" onClick={toggleTheme}>
+                {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setLanguage(language === "fr" ? "en" : "fr")}>
+                <Globe className="h-5 w-5" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={handleWhatsAppSupport}>
+                <MessageCircle className="h-5 w-5 text-green-500" />
+              </Button>
+              <button
+                className="p-2"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              >
+                {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden bg-white border-t shadow-lg">
+          <div className={`md:hidden border-t shadow-lg ${theme === "dark" ? "bg-slate-800 border-slate-700" : "bg-white"}`}>
             <div className="px-4 py-6 space-y-4">
-              <a href="#features" className="block text-lg font-medium">Fonctionnalités</a>
-              <a href="#pricing" className="block text-lg font-medium">Tarifs</a>
-              <a href="#contact" className="block text-lg font-medium">Contact</a>
+              <a href="#features" className={`block text-lg font-medium ${theme === "dark" ? "text-white" : ""}`}>{t.features}</a>
+              <a href="#pricing" className={`block text-lg font-medium ${theme === "dark" ? "text-white" : ""}`}>{t.pricing}</a>
+              <a href="#contact" className={`block text-lg font-medium ${theme === "dark" ? "text-white" : ""}`}>{t.contact}</a>
               <Link href="/app" className="block">
-                <Button className="w-full bg-gradient-to-r from-blue-600 to-blue-700">
-                  Accéder à l'app
+                <Button className="w-full bg-[#003366] hover:bg-[#004080]">
+                  {t.accessApp}
                 </Button>
               </Link>
             </div>

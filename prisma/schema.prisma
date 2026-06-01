@@ -13,6 +13,7 @@ datasource db {
 // ==================== USER MANAGEMENT ====================
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   AGENT
   COMPTABLE
@@ -24,6 +25,7 @@ model User {
   password  String
   name      String
   role      UserRole @default(AGENT)
+  companyId String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -32,6 +34,25 @@ model User {
   services  Service[]
   invoices  Invoice[]
   manifests Manifest[]
+  company   Company?  @relation(fields: [companyId], references: [id])
+}
+
+// ==================== COMPANIES ====================
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  phone       String?
+  address     String?
+  city        String?
+  ice         String?
+  active      Boolean  @default(true)
+  plan        String   @default("trial") // trial, starter, professional, enterprise
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
 }
 
 // ==================== VEHICLES ====================
