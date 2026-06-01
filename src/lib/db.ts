@@ -31,40 +31,59 @@ export async function runAutoMigration(): Promise<boolean> {
   try {
     console.log("Checking database schema...");
 
-    // Check if companyId column exists in User table
-    const columnCheck = await db.$queryRaw`
-      SELECT column_name 
+    // First, get all existing User table columns
+    const userColumns = await db.$queryRaw`
+      SELECT column_name, data_type, is_nullable, column_default
       FROM information_schema.columns 
       WHERE table_name = 'User' 
-      AND column_name = 'companyId'
+      ORDER BY ordinal_position
     `;
+    console.log("User table columns:", JSON.stringify(userColumns, null, 2));
 
-    if (Array.isArray(columnCheck) && columnCheck.length === 0) {
-      console.log("Running database migration...");
+    // Fix any NOT NULL columns without defaults that might cause issues
+    // For each NOT NULL column without a default, we need to either add a default or allow NULL
+    const userCols = userColumns as Array<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>;
+    
+    for (const col of userCols) {
+      // Skip primary key and known columns
+      if (['id', 'email', 'password', 'name', 'role', 'active', 'approved', 'companyId', 'createdAt', 'updatedAt'].includes(col.column_name)) {
+        continue;
+      }
       
-      // Add companyId column to User table
-      await db.$executeRaw`
-        ALTER TABLE "User" ADD COLUMN "companyId" TEXT
-      `;
+      // If column is NOT NULL and has no default, add a default or make it nullable
+      if (col.is_nullable === 'NO' && !col.column_default) {
+        console.log(`Fixing column ${col.column_name} - adding default or making nullable`);
+        try {
+          if (col.data_type === 'text' || col.data_type === 'character varying') {
+            await db.$executeRawUnsafe(`ALTER TABLE "User" ALTER COLUMN "${col.column_name}" DROP NOT NULL`);
+          } else if (col.data_type === 'boolean') {
+            await db.$executeRawUnsafe(`ALTER TABLE "User" ALTER COLUMN "${col.column_name}" SET DEFAULT false`);
+          } else if (col.data_type === 'integer' || col.data_type === 'bigint') {
+            await db.$executeRawUnsafe(`ALTER TABLE "User" ALTER COLUMN "${col.column_name}" SET DEFAULT 0`);
+          } else {
+            await db.$executeRawUnsafe(`ALTER TABLE "User" ALTER COLUMN "${col.column_name}" DROP NOT NULL`);
+          }
+        } catch (e) {
+          console.log(`Could not fix column ${col.column_name}:`, e);
+        }
+      }
+    }
+
+    // Check if companyId column exists in User table
+    const companyIdExists = userCols.some(c => c.column_name === 'companyId');
+    if (!companyIdExists) {
+      console.log("Adding companyId column to User table...");
+      await db.$executeRaw`ALTER TABLE "User" ADD COLUMN "companyId" TEXT`;
       console.log("Added companyId column to User table");
     }
 
     // Check if approved column exists in User table
-    const approvedCheck = await db.$queryRaw`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'User' 
-      AND column_name = 'approved'
-    `;
-
-    if (Array.isArray(approvedCheck) && approvedCheck.length === 0) {
-      await db.$executeRaw`
-        ALTER TABLE "User" ADD COLUMN "approved" BOOLEAN NOT NULL DEFAULT false
-      `;
+    const approvedExists = userCols.some(c => c.column_name === 'approved');
+    if (!approvedExists) {
+      console.log("Adding approved column to User table...");
+      await db.$executeRaw`ALTER TABLE "User" ADD COLUMN "approved" BOOLEAN NOT NULL DEFAULT false`;
       // Approve existing users
-      await db.$executeRaw`
-        UPDATE "User" SET approved = true
-      `;
+      await db.$executeRaw`UPDATE "User" SET approved = true WHERE approved = false`;
       console.log("Added approved column to User table");
     }
 
@@ -98,37 +117,18 @@ export async function runAutoMigration(): Promise<boolean> {
       `;
       console.log("Created Company table");
     } else {
-      // Check if approved column exists in Company table
-      const companyApprovedCheck = await db.$queryRaw`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'Company' 
-        AND column_name = 'approved'
+      // Check and add missing columns to Company table
+      const companyColumns = await db.$queryRaw`
+        SELECT column_name FROM information_schema.columns WHERE table_name = 'Company'
       `;
+      const companyCols = (companyColumns as any[]).map(c => c.column_name);
 
-      if (Array.isArray(companyApprovedCheck) && companyApprovedCheck.length === 0) {
-        await db.$executeRaw`
-          ALTER TABLE "Company" ADD COLUMN "approved" BOOLEAN NOT NULL DEFAULT false
-        `;
-        await db.$executeRaw`
-          UPDATE "Company" SET approved = true
-        `;
-        console.log("Added approved column to Company table");
+      if (!companyCols.includes('approved')) {
+        await db.$executeRaw`ALTER TABLE "Company" ADD COLUMN "approved" BOOLEAN NOT NULL DEFAULT false`;
+        await db.$executeRaw`UPDATE "Company" SET approved = true`;
       }
-
-      // Check if blocked column exists in Company table
-      const companyBlockedCheck = await db.$queryRaw`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'Company' 
-        AND column_name = 'blocked'
-      `;
-
-      if (Array.isArray(companyBlockedCheck) && companyBlockedCheck.length === 0) {
-        await db.$executeRaw`
-          ALTER TABLE "Company" ADD COLUMN "blocked" BOOLEAN NOT NULL DEFAULT false
-        `;
-        console.log("Added blocked column to Company table");
+      if (!companyCols.includes('blocked')) {
+        await db.$executeRaw`ALTER TABLE "Company" ADD COLUMN "blocked" BOOLEAN NOT NULL DEFAULT false`;
       }
     }
 
@@ -151,14 +151,12 @@ export async function runAutoMigration(): Promise<boolean> {
         console.log("Added foreign key constraint");
       }
     } catch (fkError) {
-      console.log("Foreign key constraint might already exist or Company table missing");
+      console.log("Foreign key constraint issue:", fkError);
     }
 
     // Create index
     try {
-      await db.$executeRaw`
-        CREATE INDEX IF NOT EXISTS "User_companyId_idx" ON "User"("companyId")
-      `;
+      await db.$executeRaw`CREATE INDEX IF NOT EXISTS "User_companyId_idx" ON "User"("companyId")`;
     } catch (e) {
       // Index might already exist
     }
@@ -169,9 +167,7 @@ export async function runAutoMigration(): Promise<boolean> {
         SELECT EXISTS (
           SELECT 1 FROM pg_enum 
           WHERE enumlabel = 'SUPER_ADMIN' 
-          AND enumtypid = (
-            SELECT oid FROM pg_type WHERE typname = 'UserRole'
-          )
+          AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'UserRole')
         )
       `;
 
@@ -180,35 +176,37 @@ export async function runAutoMigration(): Promise<boolean> {
         (superAdminCheck[0] as any)?.exists === true;
 
       if (!hasSuperAdmin) {
-        await db.$executeRaw`
-          ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'SUPER_ADMIN'
-        `;
+        await db.$executeRaw`ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'SUPER_ADMIN'`;
         console.log("Added SUPER_ADMIN to UserRole enum");
       }
     } catch (enumError) {
       console.log("Error checking SUPER_ADMIN enum:", enumError);
     }
 
-    // Create super admin if not exists (using plain password for simple comparison)
+    // Create super admin if not exists
     const existingSuperAdmin = await db.$queryRaw`
       SELECT id, email FROM "User" WHERE email = 'marketing@mozartevents.ma'
     `;
 
     if (Array.isArray(existingSuperAdmin) && existingSuperAdmin.length === 0) {
-      await db.$executeRaw`
-        INSERT INTO "User" (id, email, password, name, role, active, approved, "createdAt", "updatedAt")
-        VALUES (
-          'super_admin_001',
-          'marketing@mozartevents.ma',
-          'Marketing@@2030+',
-          'Super Administrateur',
-          'SUPER_ADMIN',
-          true,
-          true,
-          CURRENT_TIMESTAMP,
-          CURRENT_TIMESTAMP
-        )
-      `;
+      // Build INSERT based on actual columns
+      const insertCols = ['id', 'email', 'password', 'name', 'role', 'active', 'approved', 'createdAt', 'updatedAt'];
+      const insertVals = [
+        "'super_admin_001'",
+        "'marketing@mozartevents.ma'",
+        "'Marketing@@2030+'",
+        "'Super Administrateur'",
+        "'SUPER_ADMIN'",
+        'true',
+        'true',
+        'CURRENT_TIMESTAMP',
+        'CURRENT_TIMESTAMP'
+      ];
+      
+      const colStr = insertCols.map(c => `"${c}"`).join(', ');
+      const valStr = insertVals.join(', ');
+      
+      await db.$executeRawUnsafe(`INSERT INTO "User" (${colStr}) VALUES (${valStr})`);
       console.log("Created super admin user");
     }
 
@@ -220,4 +218,19 @@ export async function runAutoMigration(): Promise<boolean> {
     console.error("Migration error:", error);
     return false;
   }
+}
+
+// Get actual table columns helper
+export async function getUserTableColumns(): Promise<string[]> {
+  const result = await db.$queryRaw`
+    SELECT column_name FROM information_schema.columns WHERE table_name = 'User' ORDER BY ordinal_position
+  `;
+  return (result as any[]).map(c => c.column_name);
+}
+
+export async function getCompanyTableColumns(): Promise<string[]> {
+  const result = await db.$queryRaw`
+    SELECT column_name FROM information_schema.columns WHERE table_name = 'Company' ORDER BY ordinal_position
+  `;
+  return (result as any[]).map(c => c.column_name);
 }

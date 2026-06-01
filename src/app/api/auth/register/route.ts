@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, runAutoMigration } from "@/lib/db";
+import { db, runAutoMigration, getUserTableColumns, getCompanyTableColumns } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use raw SQL to check if email already exists (avoids Prisma schema issues)
+    // Check if email already exists
     const existingUserResult = await db.$queryRaw`
       SELECT id, email FROM "User" WHERE email = ${email}
     `;
@@ -42,18 +42,60 @@ export async function POST(request: NextRequest) {
     // Generate IDs
     const companyId = `company_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date().toISOString();
 
-    // Create company using raw SQL
-    await db.$executeRaw`
-      INSERT INTO "Company" (id, name, email, phone, active, approved, blocked, plan, "createdAt", "updatedAt")
-      VALUES (${companyId}, ${companyName}, ${email}, ${phone || null}, true, false, false, 'trial', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `;
+    // Get actual table columns
+    const userCols = await getUserTableColumns();
+    const companyCols = await getCompanyTableColumns();
 
-    // Create user using raw SQL
-    await db.$executeRaw`
-      INSERT INTO "User" (id, name, email, password, role, active, approved, "companyId", "createdAt", "updatedAt")
-      VALUES (${userId}, ${name}, ${email}, ${password}, 'ADMIN', true, false, ${companyId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `;
+    // Build Company INSERT
+    const companyData: Record<string, any> = {
+      id: companyId,
+      name: companyName,
+      email: email,
+      active: true,
+      approved: false,
+      plan: 'trial',
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (phone && companyCols.includes('phone')) companyData.phone = phone;
+    if (companyCols.includes('blocked')) companyData.blocked = false;
+
+    const companyInsertCols = Object.keys(companyData).filter(k => companyCols.includes(k));
+    const companyInsertVals = companyInsertCols.map(c => companyData[c]);
+    const companyColStr = companyInsertCols.map(c => `"${c}"`).join(', ');
+    const companyValStr = companyInsertVals.map(() => '?').join(', ');
+
+    await db.$executeRawUnsafe(
+      `INSERT INTO "Company" (${companyColStr}) VALUES (${companyValStr})`,
+      ...companyInsertVals
+    );
+
+    // Build User INSERT
+    const userData: Record<string, any> = {
+      id: userId,
+      email: email,
+      password: password,
+      name: name,
+      role: 'ADMIN',
+      active: true,
+      approved: false,
+      companyId: companyId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (phone && userCols.includes('phone')) userData.phone = phone;
+
+    const userInsertCols = Object.keys(userData).filter(k => userCols.includes(k));
+    const userInsertVals = userInsertCols.map(c => userData[c]);
+    const userColStr = userInsertCols.map(c => `"${c}"`).join(', ');
+    const userValStr = userInsertVals.map(() => '?').join(', ');
+
+    await db.$executeRawUnsafe(
+      `INSERT INTO "User" (${userColStr}) VALUES (${userValStr})`,
+      ...userInsertVals
+    );
 
     return NextResponse.json({
       success: true,
