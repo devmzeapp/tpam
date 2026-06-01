@@ -8,6 +8,11 @@ import { fr } from "date-fns/locale";
 import { toast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
 
+// Super Admin Components
+import { SuperAdminSidebar } from "@/components/super-admin/sidebar";
+import { SuperAdminDashboard } from "@/components/super-admin/dashboard";
+import { BackupView } from "@/components/super-admin/backup-view";
+
 // UI Components
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -3659,12 +3664,36 @@ function UsersView() {
 // ==================== MAIN APP COMPONENT ====================
 
 export default function TPAMApp() {
-  const { isAuthenticated, currentView } = useAppStore();
+  const { isAuthenticated, currentView, user } = useAppStore();
 
   if (!isAuthenticated) {
     return <LoginPage />;
   }
 
+  // Check if user is SUPER_ADMIN
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+
+  // Super Admin Views
+  const renderSuperAdminView = () => {
+    switch (currentView) {
+      case "dashboard":
+        return <SuperAdminDashboard />;
+      case "companies":
+        return <CompaniesView />;
+      case "users":
+        return <UsersView />;
+      case "reports":
+        return <ReportsView />;
+      case "backup":
+        return <BackupView />;
+      case "settings":
+        return <div className="p-6"><h2 className="text-2xl font-bold">Paramètres</h2><p className="text-muted-foreground">Paramètres de la plateforme</p></div>;
+      default:
+        return <SuperAdminDashboard />;
+    }
+  };
+
+  // Regular User Views
   const renderView = () => {
     switch (currentView) {
       case "dashboard":
@@ -3698,6 +3727,20 @@ export default function TPAMApp() {
     }
   };
 
+  // Render Super Admin Interface
+  if (isSuperAdmin) {
+    return (
+      <div className="min-h-screen flex bg-background">
+        <SuperAdminSidebar />
+        <div className="flex-1 flex flex-col">
+          <main className="flex-1 overflow-auto">{renderSuperAdminView()}</main>
+        </div>
+        <Toaster />
+      </div>
+    );
+  }
+
+  // Render Regular User Interface
   return (
     <div className="min-h-screen flex bg-background">
       <Sidebar />

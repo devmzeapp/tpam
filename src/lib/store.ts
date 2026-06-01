@@ -25,6 +25,7 @@ export type ViewType =
   | "reports"
   | "users"
   | "companies"
+  | "backup"
   | "settings";
 
 interface AppState {
