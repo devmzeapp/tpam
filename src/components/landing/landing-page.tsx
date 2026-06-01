@@ -27,6 +27,8 @@ import {
   LayoutDashboard,
   CreditCard,
   ClipboardList,
+  Car,
+  DollarSign,
 } from "lucide-react";
 import Link from "next/link";
 import { VERSION } from "@/lib/version";
@@ -687,6 +689,3 @@ export function LandingPage() {
     </div>
   );
 }
-
-// Import DollarSign that was missing
-import { DollarSign } from "lucide-react";
