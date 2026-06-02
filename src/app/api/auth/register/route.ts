@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     const companyInsertCols = Object.keys(companyData).filter(k => companyCols.includes(k));
     const companyInsertVals = companyInsertCols.map(c => companyData[c]);
     const companyColStr = companyInsertCols.map(c => `"${c}"`).join(', ');
-    const companyValStr = companyInsertVals.map(() => '?').join(', ');
+    const companyValStr = companyInsertVals.map((_, i) => `$${i + 1}`).join(', ');
 
     await db.$executeRawUnsafe(
       `INSERT INTO "Company" (${companyColStr}) VALUES (${companyValStr})`,
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     const userInsertCols = Object.keys(userData).filter(k => userCols.includes(k));
     const userInsertVals = userInsertCols.map(c => userData[c]);
     const userColStr = userInsertCols.map(c => `"${c}"`).join(', ');
-    const userValStr = userInsertVals.map(() => '?').join(', ');
+    const userValStr = userInsertVals.map((_, i) => `$${i + 1}`).join(', ');
 
     await db.$executeRawUnsafe(
       `INSERT INTO "User" (${userColStr}) VALUES (${userValStr})`,
