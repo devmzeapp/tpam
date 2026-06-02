@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, runAutoMigration, getUserTableColumns, getCompanyTableColumns } from "@/lib/db";
+import { db, runAutoMigration } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,60 +42,39 @@ export async function POST(request: NextRequest) {
     // Generate IDs
     const companyId = `company_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const now = new Date().toISOString();
 
-    // Get actual table columns
-    const userCols = await getUserTableColumns();
-    const companyCols = await getCompanyTableColumns();
+    // Insert Company using Prisma's tagged template (handles types automatically)
+    await db.$executeRaw`
+      INSERT INTO "Company" (id, name, email, active, approved, blocked, plan, "createdAt", "updatedAt")
+      VALUES (
+        ${companyId},
+        ${companyName},
+        ${email},
+        true,
+        false,
+        false,
+        'trial',
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
+    `;
 
-    // Build Company INSERT
-    const companyData: Record<string, any> = {
-      id: companyId,
-      name: companyName,
-      email: email,
-      active: true,
-      approved: false,
-      plan: 'trial',
-      createdAt: now,
-      updatedAt: now,
-    };
-    if (phone && companyCols.includes('phone')) companyData.phone = phone;
-    if (companyCols.includes('blocked')) companyData.blocked = false;
-
-    const companyInsertCols = Object.keys(companyData).filter(k => companyCols.includes(k));
-    const companyInsertVals = companyInsertCols.map(c => companyData[c]);
-    const companyColStr = companyInsertCols.map(c => `"${c}"`).join(', ');
-    const companyValStr = companyInsertVals.map((_, i) => `$${i + 1}`).join(', ');
-
-    await db.$executeRawUnsafe(
-      `INSERT INTO "Company" (${companyColStr}) VALUES (${companyValStr})`,
-      ...companyInsertVals
-    );
-
-    // Build User INSERT
-    const userData: Record<string, any> = {
-      id: userId,
-      email: email,
-      password: password,
-      name: name,
-      role: 'ADMIN',
-      active: true,
-      approved: false,
-      companyId: companyId,
-      createdAt: now,
-      updatedAt: now,
-    };
-    if (phone && userCols.includes('phone')) userData.phone = phone;
-
-    const userInsertCols = Object.keys(userData).filter(k => userCols.includes(k));
-    const userInsertVals = userInsertCols.map(c => userData[c]);
-    const userColStr = userInsertCols.map(c => `"${c}"`).join(', ');
-    const userValStr = userInsertVals.map((_, i) => `$${i + 1}`).join(', ');
-
-    await db.$executeRawUnsafe(
-      `INSERT INTO "User" (${userColStr}) VALUES (${userValStr})`,
-      ...userInsertVals
-    );
+    // Insert User using Prisma's tagged template (handles types automatically)
+    await db.$executeRaw`
+      INSERT INTO "User" (id, email, password, name, role, active, approved, "companyId", "createdAt", "updatedAt")
+      VALUES (
+        ${userId},
+        ${email},
+        ${password},
+        ${name},
+        'ADMIN',
+        true,
+        false,
+        ${companyId},
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
+    `;
 
     return NextResponse.json({
       success: true,
