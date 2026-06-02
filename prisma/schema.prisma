@@ -17,6 +17,7 @@ enum UserRole {
   ADMIN
   AGENT
   COMPTABLE
+  LECTURE
 }
 
 model User {
@@ -47,7 +48,13 @@ model Company {
   phone       String?
   address     String?
   city        String?
-  ice         String?
+  ice         String?  // Identifiant Commun de l'Entreprise
+  rc          String?  // Registre de Commerce
+  if          String?  // Identifiant Fiscal
+  cnss        String?  // CNSS
+  logo        String?  // Logo de l'entreprise (base64 ou URL)
+  stamp       String?  // Cachet (base64 ou URL)
+  signature   String?  // Signature (base64 ou URL)
   active      Boolean  @default(true)
   approved    Boolean  @default(false) // Requires super admin approval
   blocked     Boolean  @default(false) // Blocked for non-payment or other reasons
@@ -70,6 +77,14 @@ model Vehicle {
   type           String?
   status         String   @default("available")
   notes          String?
+  // Kilométrage et maintenance
+  currentKm      Int?
+  lastOilChangeDate   DateTime?
+  lastOilChangeKm     Int?
+  nextOilChangeKm     Int?
+  insuranceExpiry     DateTime?
+  vignetteExpiry      DateTime?
+  technicalInspectionExpiry DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

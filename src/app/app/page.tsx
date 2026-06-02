@@ -412,7 +412,7 @@ function LoginPage() {
 // ==================== SIDEBAR COMPONENT ====================
 
 function Sidebar() {
-  const { currentView, setCurrentView, user, logout, sidebarOpen } = useAppStore();
+  const { currentView, setCurrentView, user, logout, sidebarOpen, theme, setTheme } = useAppStore();
 
   const menuItems: { id: ViewType; label: string; icon: React.ReactNode; roles?: string[] }[] = [
     { id: "dashboard", label: "Tableau de bord", icon: <LayoutDashboard className="h-5 w-5" /> },
@@ -428,11 +428,22 @@ function Sidebar() {
     { id: "manifests", label: "Manifestes", icon: <ClipboardList className="h-5 w-5" /> },
     { id: "reports", label: "Rapports", icon: <BarChart3 className="h-5 w-5" /> },
     { id: "users", label: "Utilisateurs", icon: <Users className="h-5 w-5" />, roles: ["ADMIN", "SUPER_ADMIN"] },
+    { id: "settings", label: "Paramètres", icon: <Settings className="h-5 w-5" /> },
   ];
 
   const filteredItems = menuItems.filter(
     (item) => !item.roles || (user && item.roles.includes(user.role))
   );
+
+  // Apply theme on mount
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }, [theme]);
 
   if (!sidebarOpen) return null;
 
@@ -467,6 +478,28 @@ function Sidebar() {
       </ScrollArea>
 
       <div className="p-4 border-t">
+        {/* Dark Mode Toggle */}
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm text-muted-foreground">Thème</span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant={theme === "light" ? "default" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setTheme("light")}
+            >
+              <Sun className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={theme === "dark" ? "default" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setTheme("dark")}
+            >
+              <Moon className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
         <div className="flex items-center gap-3 mb-3">
           <Avatar className="h-9 w-9">
             <AvatarFallback>{user?.name?.[0] || "U"}</AvatarFallback>
@@ -3661,6 +3694,265 @@ function UsersView() {
   );
 }
 
+// ==================== SETTINGS VIEW ====================
+
+function SettingsView() {
+  const { user } = useAppStore();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [company, setCompany] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+    city: string;
+    ice: string;
+    rc: string;
+    if: string;
+    cnss: string;
+    logo: string | null;
+    stamp: string | null;
+    signature: string | null;
+  } | null>(null);
+
+  // Check if user can edit (not LECTURE role)
+  const canEdit = user?.role && !["LECTURE"].includes(user.role);
+
+  useEffect(() => {
+    const fetchCompany = async () => {
+      if (!user?.companyId) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/company?companyId=${user.companyId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setCompany(data);
+        }
+      } catch (error) {
+        console.error("Error fetching company:", error);
+      }
+      setLoading(false);
+    };
+    fetchCompany();
+  }, [user?.companyId]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, field: "logo" | "stamp" | "signature") => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCompany(prev => prev ? { ...prev, [field]: reader.result as string } : null);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!company) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/company", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(company),
+      });
+      if (res.ok) {
+        toast({ title: "Succès", description: "Paramètres enregistrés" });
+      }
+    } catch (error) {
+      toast({ title: "Erreur", description: "Impossible d'enregistrer", variant: "destructive" });
+    }
+    setSaving(false);
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-64">Chargement...</div>;
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Paramètres de l'entreprise</h3>
+          <p className="text-sm text-muted-foreground">Configurez les informations de votre entreprise</p>
+        </div>
+        <Button variant="ghost" size="icon" onClick={() => toast({ title: "Aide", description: "Configurez les informations légales, le logo, le cachet et la signature qui apparaîtront sur vos documents." })}>
+          <AlertCircle className="h-5 w-5" />
+        </Button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Informations générales */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Informations générales
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Nom de l'entreprise</Label>
+                <Input 
+                  value={company?.name || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, name: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input 
+                  type="email"
+                  value={company?.email || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, email: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Téléphone</Label>
+                <Input 
+                  value={company?.phone || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, phone: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Ville</Label>
+                <Input 
+                  value={company?.city || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, city: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Adresse</Label>
+              <Textarea 
+                value={company?.address || ""} 
+                onChange={(e) => setCompany(prev => prev ? { ...prev, address: e.target.value } : null)}
+                disabled={!canEdit}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Informations légales */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Informations légales</CardTitle>
+            <CardDescription>Ces informations apparaîtront sur vos factures et documents officiels</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>ICE (Identifiant Commun de l'Entreprise)</Label>
+                <Input 
+                  value={company?.ice || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, ice: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>RC (Registre de Commerce)</Label>
+                <Input 
+                  value={company?.rc || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, rc: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>IF (Identifiant Fiscal)</Label>
+                <Input 
+                  value={company?.if || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, if: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>CNSS</Label>
+                <Input 
+                  value={company?.cnss || ""} 
+                  onChange={(e) => setCompany(prev => prev ? { ...prev, cnss: e.target.value } : null)}
+                  disabled={!canEdit}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Documents */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Documents</CardTitle>
+            <CardDescription>Téléchargez votre logo, cachet et signature pour vos documents</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Logo */}
+              <div className="space-y-4">
+                <Label>Logo de l'entreprise</Label>
+                <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 text-center min-h-[150px] flex items-center justify-center">
+                  {company?.logo ? (
+                    <img src={company.logo} alt="Logo" className="max-h-32 mx-auto object-contain" />
+                  ) : (
+                    <Building2 className="h-12 w-12 text-muted-foreground/50" />
+                  )}
+                </div>
+                {canEdit && (
+                  <Input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, "logo")} />
+                )}
+              </div>
+
+              {/* Cachet */}
+              <div className="space-y-4">
+                <Label>Cachet</Label>
+                <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 text-center min-h-[150px] flex items-center justify-center">
+                  {company?.stamp ? (
+                    <img src={company.stamp} alt="Cachet" className="max-h-32 mx-auto object-contain" />
+                  ) : (
+                    <FileCheck className="h-12 w-12 text-muted-foreground/50" />
+                  )}
+                </div>
+                {canEdit && (
+                  <Input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, "stamp")} />
+                )}
+              </div>
+
+              {/* Signature */}
+              <div className="space-y-4">
+                <Label>Signature</Label>
+                <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 text-center min-h-[150px] flex items-center justify-center">
+                  {company?.signature ? (
+                    <img src={company.signature} alt="Signature" className="max-h-32 mx-auto object-contain" />
+                  ) : (
+                    <Edit className="h-12 w-12 text-muted-foreground/50" />
+                  )}
+                </div>
+                {canEdit && (
+                  <Input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, "signature")} />
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {canEdit && (
+          <div className="flex justify-end">
+            <Button type="submit" disabled={saving}>
+              {saving ? "Enregistrement..." : "Enregistrer les modifications"}
+            </Button>
+          </div>
+        )}
+      </form>
+    </div>
+  );
+}
+
 // ==================== MAIN APP COMPONENT ====================
 
 export default function TPAMApp() {
@@ -3722,6 +4014,8 @@ export default function TPAMApp() {
         return <ReportsView />;
       case "users":
         return <UsersView />;
+      case "settings":
+        return <SettingsView />;
       default:
         return <DashboardView />;
     }

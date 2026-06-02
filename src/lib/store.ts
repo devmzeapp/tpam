@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type UserRole = "SUPER_ADMIN" | "ADMIN" | "AGENT" | "COMPTABLE";
+export type UserRole = "SUPER_ADMIN" | "ADMIN" | "AGENT" | "COMPTABLE" | "LECTURE";
 
 export interface User {
   id: string;
