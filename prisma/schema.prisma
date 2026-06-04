@@ -77,14 +77,6 @@ model Vehicle {
   type           String?
   status         String   @default("available")
   notes          String?
-  // Kilométrage et maintenance
-  currentKm      Int?
-  lastOilChangeDate   DateTime?
-  lastOilChangeKm     Int?
-  nextOilChangeKm     Int?
-  insuranceExpiry     DateTime?
-  vignetteExpiry      DateTime?
-  technicalInspectionExpiry DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
