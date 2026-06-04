@@ -94,6 +94,25 @@ import {
 import { cn } from "@/lib/utils";
 import { AuthPage } from "@/components/auth/auth-page";
 
+// Charts
+import {
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+
 // ==================== TYPES ====================
 
 interface Vehicle {
@@ -566,6 +585,9 @@ function Header() {
 
 // ==================== DASHBOARD VIEW ====================
 
+// Couleurs pour les graphiques
+const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
 function DashboardView() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard"],
@@ -575,70 +597,248 @@ function DashboardView() {
   const setCurrentView = useAppStore((s) => s.setCurrentView);
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64">Chargement...</div>;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   const stats = data?.stats as DashboardStats;
   const recentServices = data?.recentServices as Service[];
   const pendingInvoices = data?.pendingInvoicesList as Invoice[];
+  const monthlyRevenue = data?.monthlyRevenue as Record<string, number>;
+  const servicesByStatus = data?.servicesByStatus as { status: string; _count: { id: number } }[];
+
+  // Préparer les données pour le graphique de revenus mensuels
+  const revenueChartData = Object.entries(monthlyRevenue || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, revenue]) => ({
+      month: format(new Date(month + '-01'), 'MMM yyyy', { locale: fr }),
+      revenue: Math.round(revenue),
+    }));
+
+  // Préparer les données pour le graphique de statut des prestations
+  const statusChartData = (servicesByStatus || []).map((item, index) => ({
+    name: item.status === 'FACTUREE' ? 'Facturées' : 
+          item.status === 'PRO_FORMA' ? 'Pro Forma' : 
+          item.status === 'NON_DECLAREE' ? 'Non déclarées' : item.status,
+    value: item._count.id,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+  }));
+
+  const totalServices = statusChartData.reduce((sum, item) => sum + item.value, 0);
 
   return (
     <div className="p-6 space-y-6">
-      {/* Stats Cards */}
+      {/* En-tête avec titre et date */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Tableau de bord</h2>
+          <p className="text-muted-foreground">
+            {format(new Date(), "EEEE dd MMMM yyyy", { locale: fr })}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setCurrentView("reports")}>
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Rapports
+          </Button>
+          <Button onClick={() => setCurrentView("services")}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nouvelle prestation
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats Cards avec design amélioré */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentView("services")}>
+        <Card className="cursor-pointer hover:shadow-xl transition-all duration-300 border-l-4 border-l-primary" onClick={() => setCurrentView("services")}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Prestations du jour</p>
-                <p className="text-3xl font-bold">{stats?.todayServices || 0}</p>
+                <p className="text-sm font-medium text-muted-foreground">Prestations du jour</p>
+                <p className="text-4xl font-bold mt-1">{stats?.todayServices || 0}</p>
+                <p className="text-xs text-green-600 flex items-center mt-2">
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  Services actifs
+                </p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <Truck className="h-6 w-6 text-primary" />
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
+                <Truck className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentView("vehicles")}>
+        <Card className="cursor-pointer hover:shadow-xl transition-all duration-300 border-l-4 border-l-orange-500" onClick={() => setCurrentView("vehicles")}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Véhicules en mission</p>
-                <p className="text-3xl font-bold">{stats?.vehiclesInMission || 0}</p>
+                <p className="text-sm font-medium text-muted-foreground">Véhicules en mission</p>
+                <p className="text-4xl font-bold mt-1">{stats?.vehiclesInMission || 0}</p>
+                <p className="text-xs text-orange-600 flex items-center mt-2">
+                  <Car className="h-3 w-3 mr-1" />
+                  En circulation
+                </p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
-                <Car className="h-6 w-6 text-orange-600" />
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg">
+                <Car className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentView("debtors")}>
+        <Card className="cursor-pointer hover:shadow-xl transition-all duration-300 border-l-4 border-l-red-500" onClick={() => setCurrentView("debtors")}>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Factures en attente</p>
-                <p className="text-3xl font-bold">{stats?.pendingInvoices || 0}</p>
+                <p className="text-sm font-medium text-muted-foreground">Factures en attente</p>
+                <p className="text-4xl font-bold mt-1">{stats?.pendingInvoices || 0}</p>
+                <p className="text-xs text-red-600 flex items-center mt-2">
+                  <Clock className="h-3 w-3 mr-1" />
+                  À recouvrer
+                </p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
-                <Receipt className="h-6 w-6 text-red-600" />
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-lg">
+                <Receipt className="h-7 w-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Chiffre du jour</p>
+                <p className="text-4xl font-bold mt-1">{stats?.todayRevenue?.toLocaleString() || 0}</p>
+                <p className="text-xs text-green-600 flex items-center mt-2">
+                  <DollarSign className="h-3 w-3 mr-1" />
+                  MAD
+                </p>
+              </div>
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg">
+                <DollarSign className="h-7 w-7 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Graphiques */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Graphique des revenus mensuels */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Évolution des revenus
+            </CardTitle>
+            <CardDescription>Revenus mensuels des 6 derniers mois</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {revenueChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={revenueChartData}>
+                  <defs>
+                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="month" className="text-xs" />
+                  <YAxis className="text-xs" tickFormatter={(value) => `${(value/1000).toFixed(0)}k`} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))', 
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                    formatter={(value: number) => [`${value.toLocaleString()} MAD`, 'Revenu']}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="revenue" 
+                    stroke="#3b82f6" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorRevenue)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <BarChart3 className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Aucune donnée de revenu disponible</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Graphique de répartition des prestations */}
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Chiffre du jour</p>
-                <p className="text-3xl font-bold">{stats?.todayRevenue?.toLocaleString() || 0} MAD</p>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PieChart className="h-5 w-5 text-primary" />
+              Statut des prestations
+            </CardTitle>
+            <CardDescription>Répartition par statut</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {statusChartData.length > 0 ? (
+              <div className="flex flex-col items-center">
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={statusChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {statusChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }}
+                      formatter={(value: number) => [`${value} prestations`, '']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-1 gap-2 mt-4 w-full">
+                  {statusChartData.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="h-3 w-3 rounded-full" 
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span>{item.name}</span>
+                      </div>
+                      <span className="font-semibold">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                <DollarSign className="h-6 w-6 text-green-600" />
+            ) : (
+              <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Aucune prestation</p>
+                </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -646,43 +846,55 @@ function DashboardView() {
       {/* Quick Access */}
       <Card>
         <CardHeader>
-          <CardTitle>Accès rapide</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Route className="h-5 w-5 text-primary" />
+            Accès rapide
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => setCurrentView("planning")}>
-              <CalendarDays className="h-6 w-6" />
-              Planning
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <Button variant="outline" className="h-24 flex-col gap-2 hover:bg-primary/10 hover:border-primary transition-all" onClick={() => setCurrentView("planning")}>
+              <CalendarDays className="h-7 w-7 text-primary" />
+              <span className="font-medium">Planning</span>
             </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => setCurrentView("services")}>
-              <Truck className="h-6 w-6" />
-              Prestations
+            <Button variant="outline" className="h-24 flex-col gap-2 hover:bg-primary/10 hover:border-primary transition-all" onClick={() => setCurrentView("services")}>
+              <Truck className="h-7 w-7 text-primary" />
+              <span className="font-medium">Prestations</span>
             </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => setCurrentView("debtors")}>
-              <Wallet className="h-6 w-6" />
-              Comptes Débiteurs
+            <Button variant="outline" className="h-24 flex-col gap-2 hover:bg-primary/10 hover:border-primary transition-all" onClick={() => setCurrentView("debtors")}>
+              <Wallet className="h-7 w-7 text-primary" />
+              <span className="font-medium">Débiteurs</span>
             </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2" onClick={() => setCurrentView("reports")}>
-              <BarChart3 className="h-6 w-6" />
-              Rapports
+            <Button variant="outline" className="h-24 flex-col gap-2 hover:bg-primary/10 hover:border-primary transition-all" onClick={() => setCurrentView("invoices")}>
+              <Receipt className="h-7 w-7 text-primary" />
+              <span className="font-medium">Factures</span>
+            </Button>
+            <Button variant="outline" className="h-24 flex-col gap-2 hover:bg-primary/10 hover:border-primary transition-all" onClick={() => setCurrentView("reports")}>
+              <BarChart3 className="h-7 w-7 text-primary" />
+              <span className="font-medium">Rapports</span>
             </Button>
           </div>
         </CardContent>
       </Card>
 
+      {/* Recent Services and Pending Invoices */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Services */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Prestations récentes</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Truck className="h-5 w-5 text-primary" />
+              Prestations récentes
+            </CardTitle>
             <Button variant="ghost" size="sm" onClick={() => setCurrentView("services")}>
               Voir tout
+              <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {recentServices?.slice(0, 5).map((service) => (
-                <div key={service.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                <div key={service.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors">
                   <div className="flex-1">
                     <p className="font-medium">{service.client?.name}</p>
                     <p className="text-sm text-muted-foreground">
@@ -690,7 +902,7 @@ function DashboardView() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{service.price?.toLocaleString()} MAD</p>
+                    <p className="font-semibold text-green-600">{service.price?.toLocaleString()} MAD</p>
                     <Badge variant={service.status === "FACTUREE" ? "default" : service.status === "PRO_FORMA" ? "secondary" : "outline"}>
                       {service.status === "FACTUREE" ? "Facturée" : service.status === "PRO_FORMA" ? "Pro forma" : "Non déclarée"}
                     </Badge>
@@ -698,7 +910,10 @@ function DashboardView() {
                 </div>
               ))}
               {(!recentServices || recentServices.length === 0) && (
-                <p className="text-center text-muted-foreground py-4">Aucune prestation récente</p>
+                <div className="text-center text-muted-foreground py-8">
+                  <Truck className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Aucune prestation récente</p>
+                </div>
               )}
             </div>
           </CardContent>
@@ -707,15 +922,19 @@ function DashboardView() {
         {/* Pending Invoices */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Factures en attente</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-red-500" />
+              Factures en attente
+            </CardTitle>
             <Button variant="ghost" size="sm" onClick={() => setCurrentView("debtors")}>
               Voir tout
+              <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {pendingInvoices?.slice(0, 5).map((invoice) => (
-                <div key={invoice.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                <div key={invoice.id} className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-950/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-950/40 transition-colors">
                   <div className="flex-1">
                     <p className="font-medium">{invoice.number}</p>
                     <p className="text-sm text-muted-foreground">{invoice.client?.name}</p>
@@ -729,7 +948,10 @@ function DashboardView() {
                 </div>
               ))}
               {(!pendingInvoices || pendingInvoices.length === 0) && (
-                <p className="text-center text-muted-foreground py-4">Aucune facture en attente</p>
+                <div className="text-center text-muted-foreground py-8">
+                  <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500 opacity-50" />
+                  <p>Aucune facture en attente</p>
+                </div>
               )}
             </div>
           </CardContent>
@@ -738,12 +960,12 @@ function DashboardView() {
 
       {/* Unpaid Amount Alert */}
       {stats?.unpaidAmount > 0 && (
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Montant impayé</AlertTitle>
-          <AlertDescription>
-            Vous avez <strong>{stats.unpaidAmount.toLocaleString()} MAD</strong> de factures impayées.{" "}
-            <Button variant="link" className="p-0 h-auto" onClick={() => setCurrentView("debtors")}>
+        <Alert className="border-red-500 bg-red-50 dark:bg-red-950/20">
+          <AlertCircle className="h-5 w-5 text-red-500" />
+          <AlertTitle className="text-red-700 dark:text-red-400">Attention : Montant impayé</AlertTitle>
+          <AlertDescription className="text-red-600 dark:text-red-300">
+            Vous avez <strong className="text-lg">{stats.unpaidAmount.toLocaleString()} MAD</strong> de factures impayées.{" "}
+            <Button variant="link" className="p-0 h-auto text-red-600 dark:text-red-400 underline" onClick={() => setCurrentView("debtors")}>
               Gérer les comptes débiteurs
             </Button>
           </AlertDescription>
