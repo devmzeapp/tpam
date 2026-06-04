@@ -613,10 +613,16 @@ function DashboardView() {
   // Préparer les données pour le graphique de revenus mensuels
   const revenueChartData = Object.entries(monthlyRevenue || {})
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, revenue]) => ({
-      month: format(new Date(month + '-01'), 'MMM yyyy', { locale: fr }),
-      revenue: Math.round(revenue),
-    }));
+    .map(([month, revenue]) => {
+      try {
+        return {
+          month: format(new Date(month + '-01'), 'MMM yyyy', { locale: fr }),
+          revenue: Math.round(revenue || 0),
+        };
+      } catch {
+        return { month, revenue: Math.round(revenue || 0) };
+      }
+    });
 
   // Préparer les données pour le graphique de statut des prestations
   const statusChartData = (servicesByStatus || []).map((item, index) => ({
@@ -783,7 +789,7 @@ function DashboardView() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <PieChart className="h-5 w-5 text-primary" />
+              <BarChart3 className="h-5 w-5 text-primary" />
               Statut des prestations
             </CardTitle>
             <CardDescription>Répartition par statut</CardDescription>
