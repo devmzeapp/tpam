@@ -2067,7 +2067,7 @@ function VehiclesView() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: vehicles, isLoading } = useQuery({
+  const { data: vehicles, isLoading, error } = useQuery({
     queryKey: ["vehicles"],
     queryFn: api.getVehicles,
   });
@@ -2173,6 +2173,15 @@ function VehiclesView() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           <div className="col-span-full text-center py-8">Chargement...</div>
+        ) : error ? (
+          <div className="col-span-full text-center py-8">
+            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
+            <p className="text-red-600 font-medium">Erreur lors du chargement des véhicules</p>
+            <p className="text-muted-foreground text-sm mt-2">{String(error)}</p>
+            <Button variant="outline" className="mt-4" onClick={() => queryClient.invalidateQueries({ queryKey: ["vehicles"] })}>
+              Réessayer
+            </Button>
+          </div>
         ) : vehicles?.length === 0 ? (
           <div className="col-span-full text-center py-8 text-muted-foreground">
             Aucun véhicule enregistré
