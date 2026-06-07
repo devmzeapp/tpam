@@ -275,30 +275,37 @@ export async function runAutoMigration(): Promise<boolean> {
     }
 
     // Create super admin if not exists
-    const existingSuperAdmin = await db.$queryRaw`
-      SELECT id, email FROM "User" WHERE email = 'marketing@mozartevents.ma'
-    `;
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'marketing@mozartevents.ma';
+    const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
+
+    const existingSuperAdmin = await db.$queryRawUnsafe(`
+      SELECT id, email FROM "User" WHERE email = '${superAdminEmail}'
+    `);
 
     if (Array.isArray(existingSuperAdmin) && existingSuperAdmin.length === 0) {
-      // Build INSERT based on actual columns
-      const insertCols = ['id', 'email', 'password', 'name', 'role', 'active', 'approved', 'createdAt', 'updatedAt'];
-      const insertVals = [
-        "'super_admin_001'",
-        "'marketing@mozartevents.ma'",
-        "'Marketing@@2030+'",
-        "'Super Administrateur'",
-        "'SUPER_ADMIN'",
-        'true',
-        'true',
-        'CURRENT_TIMESTAMP',
-        'CURRENT_TIMESTAMP'
-      ];
-      
-      const colStr = insertCols.map(c => `"${c}"`).join(', ');
-      const valStr = insertVals.join(', ');
-      
-      await db.$executeRawUnsafe(`INSERT INTO "User" (${colStr}) VALUES (${valStr})`);
-      console.log("Created super admin user");
+      if (!superAdminPassword) {
+        console.log("SUPER_ADMIN_PASSWORD not set - skipping super admin creation");
+      } else {
+        // Build INSERT based on actual columns
+        const insertCols = ['id', 'email', 'password', 'name', 'role', 'active', 'approved', 'createdAt', 'updatedAt'];
+        const insertVals = [
+          "'super_admin_001'",
+          `'${superAdminEmail}'`,
+          `'${superAdminPassword}'`,
+          "'Super Administrateur'",
+          "'SUPER_ADMIN'",
+          'true',
+          'true',
+          'CURRENT_TIMESTAMP',
+          'CURRENT_TIMESTAMP'
+        ];
+        
+        const colStr = insertCols.map(c => `"${c}"`).join(', ');
+        const valStr = insertVals.join(', ');
+        
+        await db.$executeRawUnsafe(`INSERT INTO "User" (${colStr}) VALUES (${valStr})`);
+        console.log(`Created super admin user: ${superAdminEmail}`);
+      }
     }
 
     // Mark migration as done
