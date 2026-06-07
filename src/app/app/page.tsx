@@ -1894,7 +1894,7 @@ ${itemsText}
           setGeneratedInvoice(null);
         }
       }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {previewType === "manifest" ? (
@@ -1908,6 +1908,7 @@ ${itemsText}
             </DialogDescription>
           </DialogHeader>
           
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {previewType === "manifest" && generatedManifests.length > 0 && (
             <div className="space-y-4">
               {/* Navigation for multiple manifests */}
@@ -1941,10 +1942,10 @@ ${itemsText}
                 if (!manifest) return null;
                 return (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-muted rounded-lg">
                       <div>
                         <p className="text-sm text-muted-foreground">Trajet</p>
-                        <p className="font-medium">{manifest.departurePlace} → {manifest.arrivalPlace}</p>
+                        <p className="font-medium break-words">{manifest.departurePlace} → {manifest.arrivalPlace}</p>
                       </div>
                       <div>
                         <p className="text-sm text-muted-foreground">Date</p>
@@ -1980,7 +1981,7 @@ ${itemsText}
                     )}
                     
                     {/* Action Buttons */}
-                    <div className="flex gap-2 pt-4">
+                    <div className="flex flex-col sm:flex-row gap-2 pt-4">
                       <Button 
                         variant="outline" 
                         className="flex-1"
@@ -2006,7 +2007,7 @@ ${itemsText}
           {previewType === "invoice" && generatedInvoice && (
             <div className="space-y-4">
               {/* Invoice Preview */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
+              <div className="grid grid-cols-2 gap-3 p-4 bg-muted rounded-lg">
                 <div>
                   <p className="text-sm text-muted-foreground">N° Facture</p>
                   <p className="font-mono font-medium text-lg">{generatedInvoice.number}</p>
@@ -2027,37 +2028,39 @@ ${itemsText}
                 </div>
               </div>
               
-              {/* Items Table */}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-center">Qté</TableHead>
-                    <TableHead className="text-right">Prix</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {generatedInvoice.items?.map((item, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell>{item.description}</TableCell>
-                      <TableCell className="text-center">{item.quantity}</TableCell>
-                      <TableCell className="text-right">{item.unitPrice.toLocaleString()} MAD</TableCell>
-                      <TableCell className="text-right font-medium">{item.total.toLocaleString()} MAD</TableCell>
+              {/* Items Table - responsive */}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="text-center">Qté</TableHead>
+                      <TableHead className="text-right">Prix</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {generatedInvoice.items?.map((item, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell className="max-w-[200px] break-words">{item.description}</TableCell>
+                        <TableCell className="text-center">{item.quantity}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">{item.unitPrice.toLocaleString()} MAD</TableCell>
+                        <TableCell className="text-right font-medium whitespace-nowrap">{item.total.toLocaleString()} MAD</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
               
               {/* Total */}
               <div className="flex justify-end">
-                <div className="bg-primary/10 px-6 py-3 rounded-lg">
+                <div className="bg-primary/10 px-4 py-3 rounded-lg">
                   <span className="text-lg font-bold">Total TTC: {generatedInvoice.total?.toLocaleString()} MAD</span>
                 </div>
               </div>
               
               {/* Action Buttons */}
-              <div className="flex gap-2 pt-4">
+              <div className="flex flex-col sm:flex-row gap-2 pt-4">
                 <Button 
                   variant="outline" 
                   className="flex-1"
@@ -2076,8 +2079,9 @@ ${itemsText}
               </div>
             </div>
           )}
+          </div>
           
-          <DialogFooter>
+          <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => {
               setShowPreviewDialog(false);
               setGeneratedManifests([]);
