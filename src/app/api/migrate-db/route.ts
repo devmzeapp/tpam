@@ -4,8 +4,15 @@ import postgres from "postgres";
 // This endpoint uses raw PostgreSQL connection (not Prisma) to perform migrations
 // This ensures it works even when the Prisma schema doesn't match the database
 
-const DATABASE_URL = process.env.DATABASE_URL || 
-  "postgresql://neondb_owner:npg_34VWfvXExqkd@ep-round-sky-an1ah6j4-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is required");
+}
+
+// Get super admin credentials from environment variables
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || "marketing@mozartevents.ma";
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
 
 export async function GET() {
   const sql = postgres(DATABASE_URL);
@@ -167,30 +174,34 @@ export async function GET() {
     // 8. Create super admin user if not exists
     try {
       const superAdmin = await sql`
-        SELECT id FROM "User" WHERE email = 'marketing@mozartevents.ma'
+        SELECT id FROM "User" WHERE email = ${SUPER_ADMIN_EMAIL}
       `;
       
       if (superAdmin.length === 0) {
-        await sql`
-          INSERT INTO "User" (id, email, password, name, role, active, approved, "createdAt", "updatedAt")
-          VALUES (
-            'super_admin_001',
-            'marketing@mozartevents.ma',
-            'Marketing@@2030+',
-            'Super Administrateur',
-            'SUPER_ADMIN',
-            true,
-            true,
-            CURRENT_TIMESTAMP,
-            CURRENT_TIMESTAMP
-          )
-        `;
-        results.push("✅ Created super admin user: marketing@mozartevents.ma");
+        if (!SUPER_ADMIN_PASSWORD) {
+          results.push("⚠️ SUPER_ADMIN_PASSWORD not set - skipping super admin creation");
+        } else {
+          await sql`
+            INSERT INTO "User" (id, email, password, name, role, active, approved, "createdAt", "updatedAt")
+            VALUES (
+              'super_admin_001',
+              ${SUPER_ADMIN_EMAIL},
+              ${SUPER_ADMIN_PASSWORD},
+              'Super Administrateur',
+              'SUPER_ADMIN',
+              true,
+              true,
+              CURRENT_TIMESTAMP,
+              CURRENT_TIMESTAMP
+            )
+          `;
+          results.push(`✅ Created super admin user: ${SUPER_ADMIN_EMAIL}`);
+        }
       } else {
         // Make sure the super admin has approved = true
         await sql`
           UPDATE "User" SET approved = true, role = 'SUPER_ADMIN'
-          WHERE email = 'marketing@mozartevents.ma'
+          WHERE email = ${SUPER_ADMIN_EMAIL}
         `;
         results.push("✅ Updated super admin user");
       }
@@ -214,7 +225,7 @@ export async function GET() {
       results,
       nextSteps: [
         "1. You can now register new accounts",
-        "2. Login as super admin: marketing@mozartevents.ma / Marketing@@2030+",
+        "2. Login with your super admin credentials",
         "3. Approve or reject new registrations from the 'Entreprises' menu"
       ]
     });

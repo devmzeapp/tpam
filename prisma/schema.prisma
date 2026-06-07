@@ -87,10 +87,14 @@ model User {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  tenant      TenantAccount? @relation(fields: [tenantId], references: [id])
+  tenant      TenantAccount? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   services    Service[]
   invoices    Invoice[]
   manifests   Manifest[]
+  
+  // Index pour les performances
+  @@index([tenantId])
+  @@index([email])
 }
 
 // ==================== VEHICLES ====================
@@ -122,12 +126,14 @@ model Vehicle {
   updatedAt       DateTime @updatedAt
 
   // Relations
-  tenant      TenantAccount @relation(fields: [tenantId], references: [id])
+  tenant      TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   services    Service[]
   manifests   Manifest[]
   
   // Index unique pour l'immatriculation par tenant
   @@unique([tenantId, registration])
+  @@index([tenantId])
+  @@index([status])
 }
 
 // ==================== DRIVERS ====================
@@ -148,9 +154,13 @@ model Driver {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  tenant      TenantAccount @relation(fields: [tenantId], references: [id])
+  tenant      TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   services    Service[]
   manifests   Manifest[]
+  
+  // Index
+  @@index([tenantId])
+  @@index([available])
 }
 
 // ==================== CLIENTS (Clients finaux du tenant) ====================
@@ -175,10 +185,14 @@ model Client {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  tenant      TenantAccount @relation(fields: [tenantId], references: [id])
+  tenant      TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   services    Service[]
   invoices    Invoice[]
   payments    Payment[]
+  
+  // Index
+  @@index([tenantId])
+  @@index([name])
 }
 
 // ==================== SERVICES/PRESTATIONS ====================
@@ -223,13 +237,21 @@ model Service {
   updatedAt       DateTime      @updatedAt
 
   // Relations
-  tenant        TenantAccount @relation(fields: [tenantId], references: [id])
-  client        Client        @relation(fields: [clientId], references: [id])
-  vehicle       Vehicle       @relation(fields: [vehicleId], references: [id])
-  driver        Driver        @relation(fields: [driverId], references: [id])
-  createdBy     User          @relation(fields: [createdById], references: [id])
+  tenant        TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client        Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  vehicle       Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  driver        Driver        @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  createdBy     User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
   invoiceItems  InvoiceItem[]
   manifests     Manifest[]
+  
+  // Index
+  @@index([tenantId])
+  @@index([clientId])
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([date])
+  @@index([status])
 }
 
 // ==================== INVOICES ====================
@@ -273,14 +295,18 @@ model Invoice {
   updatedAt     DateTime      @updatedAt
 
   // Relations
-  tenant      TenantAccount @relation(fields: [tenantId], references: [id])
-  client      Client        @relation(fields: [clientId], references: [id])
-  createdBy   User          @relation(fields: [createdById], references: [id])
+  tenant      TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  createdBy   User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
   items       InvoiceItem[]
   payments    Payment[]
   
   // Numéro de facture unique par tenant
   @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([clientId])
+  @@index([status])
+  @@index([issueDate])
 }
 
 model InvoiceItem {
@@ -298,7 +324,11 @@ model InvoiceItem {
 
   // Relations
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  service Service @relation(fields: [serviceId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  
+  // Index
+  @@index([invoiceId])
+  @@index([serviceId])
 }
 
 // ==================== PAYMENTS ====================
@@ -328,9 +358,15 @@ model Payment {
   updatedAt   DateTime      @updatedAt
 
   // Relations
-  tenant    TenantAccount @relation(fields: [tenantId], references: [id])
-  client    Client        @relation(fields: [clientId], references: [id])
-  invoice   Invoice?      @relation(fields: [invoiceId], references: [id])
+  tenant    TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  invoice   Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  
+  // Index
+  @@index([tenantId])
+  @@index([clientId])
+  @@index([invoiceId])
+  @@index([paymentDate])
 }
 
 // ==================== MANIFESTS ====================
@@ -357,11 +393,16 @@ model Manifest {
   updatedAt       DateTime @updatedAt
 
   // Relations
-  tenant      TenantAccount @relation(fields: [tenantId], references: [id])
-  service     Service       @relation(fields: [serviceId], references: [id])
-  vehicle     Vehicle       @relation(fields: [vehicleId], references: [id])
-  driver      Driver        @relation(fields: [driverId], references: [id])
-  createdBy   User          @relation(fields: [createdById], references: [id])
+  tenant      TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  service     Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  vehicle     Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  driver      Driver        @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  createdBy   User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  
+  // Index
+  @@index([tenantId])
+  @@index([serviceId])
+  @@index([date])
 }
 
 // ==================== TENANT SETTINGS ====================
@@ -378,10 +419,11 @@ model TenantSetting {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  tenant  TenantAccount @relation(fields: [tenantId], references: [id])
+  tenant  TenantAccount @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   
   // Clé unique par tenant
   @@unique([tenantId, key])
+  @@index([tenantId])
 }
 
 // ==================== GLOBAL SETTINGS (Super Admin only) ====================
