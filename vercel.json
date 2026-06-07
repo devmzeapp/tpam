@@ -1,5 +1,4 @@
 {
-  "buildCommand": "rm -rf node_modules/.prisma node_modules/@prisma/client && prisma generate --no-cache && next build",
   "installCommand": "bun install",
   "framework": "nextjs",
   "regions": ["iad1"],
