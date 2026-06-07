@@ -1284,6 +1284,34 @@ function PlanningView() {
 
 // ==================== SERVICES VIEW WITH DOCUMENT GENERATION ====================
 
+interface GeneratedManifest {
+  id: string;
+  serviceId: string;
+  vehicleId: string;
+  driverId: string;
+  date: string;
+  departurePlace: string;
+  arrivalPlace: string;
+  passengerCount: number;
+  passengerList?: string;
+  service: Service;
+  vehicle: Vehicle;
+  driver: Driver;
+}
+
+interface GeneratedInvoice {
+  id: string;
+  number: string;
+  clientId: string;
+  type: string;
+  status: string;
+  issueDate: string;
+  subtotal: number;
+  total: number;
+  client: Client;
+  items: { description: string; quantity: number; unitPrice: number; total: number }[];
+}
+
 function ServicesView() {
   const [filters, setFilters] = useState({
     status: "",
@@ -1295,6 +1323,13 @@ function ServicesView() {
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [showDocDialog, setShowDocDialog] = useState(false);
   const [docType, setDocType] = useState<"manifest" | "proforma" | "invoice">("invoice");
+  
+  // State for document preview
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [generatedManifests, setGeneratedManifests] = useState<GeneratedManifest[]>([]);
+  const [generatedInvoice, setGeneratedInvoice] = useState<GeneratedInvoice | null>(null);
+  const [previewType, setPreviewType] = useState<"manifest" | "invoice">("invoice");
+  const [currentManifestIndex, setCurrentManifestIndex] = useState(0);
 
   const queryClient = useQueryClient();
 
@@ -1333,12 +1368,16 @@ function ServicesView() {
 
   const createInvoiceMutation = useMutation({
     mutationFn: api.createInvoice,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["services"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setShowDocDialog(false);
       setSelectedServices([]);
+      // Show preview
+      setGeneratedInvoice(data);
+      setPreviewType("invoice");
+      setShowPreviewDialog(true);
       toast({ title: "Document créé", description: "Le document a été généré avec succès" });
     },
     onError: () => {
@@ -1348,10 +1387,15 @@ function ServicesView() {
 
   const createManifestMutation = useMutation({
     mutationFn: api.createManifest,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["manifests"] });
       queryClient.invalidateQueries({ queryKey: ["services"] });
       setShowDocDialog(false);
+      // Add to generated manifests list
+      setGeneratedManifests((prev) => [...prev, data]);
+      setPreviewType("manifest");
+      setCurrentManifestIndex(0);
+      setShowPreviewDialog(true);
       setSelectedServices([]);
       toast({ title: "Manifeste créé", description: "Le manifeste a été généré avec succès" });
     },
@@ -1375,6 +1419,9 @@ function ServicesView() {
     }
 
     if (docType === "manifest") {
+      // Clear previous manifests and close preview
+      setGeneratedManifests([]);
+      setShowPreviewDialog(false);
       // Create manifests for each service
       selectedData.forEach((service) => {
         createManifestMutation.mutate({
@@ -1423,6 +1470,277 @@ function ServicesView() {
       default:
         return <Badge variant="outline">Non déclarée</Badge>;
     }
+  };
+
+  // Print functions
+  const printManifest = (manifest: GeneratedManifest) => {
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Manifeste de Voyage - ${manifest.departurePlace} → ${manifest.arrivalPlace}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+          .logo { font-size: 36px; font-weight: bold; color: #2563eb; }
+          .title { font-size: 24px; margin-top: 10px; }
+          .route { font-size: 18px; color: #666; margin-top: 5px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+          .info-box { background: #f5f5f5; padding: 15px; border-radius: 8px; }
+          .info-box h3 { margin: 0 0 10px 0; color: #666; font-size: 12px; text-transform: uppercase; }
+          .info-box p { margin: 5px 0; font-size: 14px; }
+          .section { margin-bottom: 30px; }
+          .section h2 { font-size: 16px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+          th { background: #f5f5f5; }
+          .signature-area { margin-top: 50px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+          .signature-box { border-top: 1px solid #333; padding-top: 10px; text-align: center; }
+          .footer { margin-top: 50px; text-align: center; color: #666; font-size: 12px; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="logo">TPAM</div>
+          <div class="title">MANIFESTE DE VOYAGE</div>
+          <div class="route">${manifest.departurePlace} → ${manifest.arrivalPlace}</div>
+          <div style="margin-top: 10px;">Date: ${format(new Date(manifest.date), 'EEEE dd MMMM yyyy', { locale: fr })}</div>
+        </div>
+        
+        <div class="info-grid">
+          <div class="info-box">
+            <h3>VÉHICULE</h3>
+            <p><strong>${manifest.vehicle?.brand || ''} ${manifest.vehicle?.model || ''}</strong></p>
+            <p>Immatriculation: ${manifest.vehicle?.registration || 'N/A'}</p>
+            <p>Capacité: ${manifest.vehicle?.capacity || 0} places</p>
+          </div>
+          <div class="info-box">
+            <h3>CHAUFFEUR</h3>
+            <p><strong>${manifest.driver?.firstName || ''} ${manifest.driver?.lastName || ''}</strong></p>
+            <p>Tél: ${manifest.driver?.phone || 'N/A'}</p>
+            <p>Permis: ${manifest.driver?.licenseNumber || 'N/A'}</p>
+          </div>
+        </div>
+        
+        <div class="info-grid">
+          <div class="info-box">
+            <h3>CLIENT</h3>
+            <p><strong>${manifest.service?.client?.name || 'N/A'}</strong></p>
+            <p>${manifest.service?.client?.phone || ''}</p>
+          </div>
+          <div class="info-box">
+            <h3>VOYAGE</h3>
+            <p><strong>Départ:</strong> ${manifest.departurePlace}</p>
+            <p><strong>Arrivée:</strong> ${manifest.arrivalPlace}</p>
+            <p><strong>Passagers:</strong> ${manifest.passengerCount}</p>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h2>Liste des passagers</h2>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">N°</th>
+                <th>Nom et Prénom</th>
+                <th style="width: 150px;">Téléphone</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${manifest.passengerList ? manifest.passengerList.split('\n').map((p: string, i: number) => `
+                <tr>
+                  <td style="text-align: center;">${i + 1}</td>
+                  <td>${p}</td>
+                  <td></td>
+                </tr>
+              `).join('') : Array(manifest.passengerCount).fill(0).map((_, i) => `
+                <tr>
+                  <td style="text-align: center;">${i + 1}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        
+        <div class="signature-area">
+          <div class="signature-box">
+            <p>Signature du Chauffeur</p>
+          </div>
+          <div class="signature-box">
+            <p>Signature du Responsable</p>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p>TPAM - Transportation Planning & Accounting Management</p>
+          <p>Document généré le ${format(new Date(), 'dd/MM/yyyy à HH:mm')}</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  const printInvoice = (invoice: GeneratedInvoice) => {
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${invoice.type === 'PRO_FORMA' ? 'Facture Pro Forma' : 'Facture'} ${invoice.number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; margin-bottom: 40px; border-bottom: 2px solid #333; padding-bottom: 20px; }
+          .logo { font-size: 36px; font-weight: bold; color: #2563eb; }
+          .title { font-size: 24px; margin-top: 10px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
+          .info-box h3 { margin: 0 0 10px 0; color: #666; font-size: 14px; }
+          .info-box p { margin: 5px 0; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+          th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+          th { background: #f5f5f5; }
+          .totals { text-align: right; margin-top: 20px; }
+          .totals p { margin: 5px 0; }
+          .total-final { font-size: 20px; font-weight: bold; border-top: 2px solid #333; padding-top: 10px; }
+          .footer { margin-top: 50px; text-align: center; color: #666; font-size: 12px; }
+          @media print { body { padding: 20px; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="logo">TPAM</div>
+          <div class="title">${invoice.type === 'PRO_FORMA' ? 'FACTURE PRO FORMA' : 'FACTURE'}</div>
+          <div>N° ${invoice.number}</div>
+          <div>Date: ${format(new Date(invoice.issueDate), 'dd/MM/yyyy')}</div>
+        </div>
+        
+        <div class="info-grid">
+          <div class="info-box">
+            <h3>ÉMETTEUR</h3>
+            <p><strong>TPAM - Transport Planning & Accounting</strong></p>
+            <p>Adresse: Casablanca, Maroc</p>
+            <p>Tél: +212 5 22 00 00 00</p>
+            <p>Email: contact@tpam.ma</p>
+          </div>
+          <div class="info-box">
+            <h3>CLIENT</h3>
+            <p><strong>${invoice.client?.name || 'N/A'}</strong></p>
+            <p>${invoice.client?.address || ''}</p>
+            <p>${invoice.client?.city || ''}</p>
+            <p>${invoice.client?.phone || ''}</p>
+            ${invoice.client?.ice ? `<p>ICE: ${invoice.client.ice}</p>` : ''}
+          </div>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th style="text-align: center;">Qté</th>
+              <th style="text-align: right;">Prix unitaire</th>
+              <th style="text-align: right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${invoice.items?.map(item => `
+              <tr>
+                <td>${item.description}</td>
+                <td style="text-align: center;">${item.quantity}</td>
+                <td style="text-align: right;">${item.unitPrice.toLocaleString()} MAD</td>
+                <td style="text-align: right;">${item.total.toLocaleString()} MAD</td>
+              </tr>
+            `).join('') || ''}
+          </tbody>
+        </table>
+        
+        <div class="totals">
+          <p>Sous-total: ${invoice.subtotal?.toLocaleString() || 0} MAD</p>
+          <p class="total-final">Total TTC: ${invoice.total?.toLocaleString() || 0} MAD</p>
+        </div>
+        
+        <div class="footer">
+          <p>Merci pour votre confiance !</p>
+          <p>TPAM - Transportation Planning & Accounting Management</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.print();
+    }
+  };
+
+  // WhatsApp share functions
+  const shareManifestViaWhatsApp = (manifest: GeneratedManifest) => {
+    const text = `🚌 *MANIFESTE DE VOYAGE - TPAM*
+
+` +
+      `📍 *Trajet:* ${manifest.departurePlace} → ${manifest.arrivalPlace}
+` +
+      `📅 *Date:* ${format(new Date(manifest.date), 'EEEE dd MMMM yyyy', { locale: fr })}
+
+` +
+      `🚗 *Véhicule:* ${manifest.vehicle?.brand} ${manifest.vehicle?.model}
+` +
+      `📋 *Immatriculation:* ${manifest.vehicle?.registration}
+
+` +
+      `👨‍✈️ *Chauffeur:* ${manifest.driver?.firstName} ${manifest.driver?.lastName}
+` +
+      `📱 *Tél chauffeur:* ${manifest.driver?.phone || 'N/A'}
+
+` +
+      `👤 *Client:* ${manifest.service?.client?.name}
+` +
+      `👥 *Passagers:* ${manifest.passengerCount}
+
+` +
+      `_Document généré par TPAM_`;
+    
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
+  const shareInvoiceViaWhatsApp = (invoice: GeneratedInvoice) => {
+    const itemsText = invoice.items?.map(item => 
+      `  • ${item.description}: ${item.total.toLocaleString()} MAD`
+    ).join('\n') || '';
+    
+    const text = `📄 *${invoice.type === 'PRO_FORMA' ? 'FACTURE PRO FORMA' : 'FACTURE'} - TPAM*
+
+` +
+      `📋 *N°:* ${invoice.number}
+` +
+      `📅 *Date:* ${format(new Date(invoice.issueDate), 'dd/MM/yyyy')}
+
+` +
+      `👤 *Client:* ${invoice.client?.name}
+` +
+      `${invoice.client?.phone ? `📱 *Tél:* ${invoice.client.phone}\n` : ''}` +
+      `${invoice.client?.ice ? `🆔 *ICE:* ${invoice.client.ice}\n` : ''}\n` +
+      `*Détails:*
+${itemsText}
+
+` +
+      `💰 *Total:* ${invoice.total?.toLocaleString()} MAD
+
+` +
+      `_Document généré par TPAM_`;
+    
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(whatsappUrl, '_blank');
   };
 
   return (
@@ -1549,6 +1867,209 @@ function ServicesView() {
           </Dialog>
         </div>
       </div>
+
+      {/* Document Preview Dialog */}
+      <Dialog open={showPreviewDialog} onOpenChange={(open) => {
+        setShowPreviewDialog(open);
+        if (!open) {
+          setGeneratedManifests([]);
+          setGeneratedInvoice(null);
+        }
+      }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {previewType === "manifest" ? (
+                <><ClipboardList className="h-5 w-5" /> Manifeste de Voyage</>
+              ) : (
+                <><Receipt className="h-5 w-5" /> {generatedInvoice?.type === 'PRO_FORMA' ? 'Facture Pro Forma' : 'Facture'}</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              Document généré avec succès. Vous pouvez l'imprimer ou le partager.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {previewType === "manifest" && generatedManifests.length > 0 && (
+            <div className="space-y-4">
+              {/* Navigation for multiple manifests */}
+              {generatedManifests.length > 1 && (
+                <div className="flex items-center justify-between bg-muted p-2 rounded-lg">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    disabled={currentManifestIndex === 0}
+                    onClick={() => setCurrentManifestIndex(prev => prev - 1)}
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Précédent
+                  </Button>
+                  <span className="text-sm font-medium">
+                    Manifeste {currentManifestIndex + 1} sur {generatedManifests.length}
+                  </span>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    disabled={currentManifestIndex === generatedManifests.length - 1}
+                    onClick={() => setCurrentManifestIndex(prev => prev + 1)}
+                  >
+                    Suivant <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              
+              {/* Manifest Preview */}
+              {(() => {
+                const manifest = generatedManifests[currentManifestIndex];
+                if (!manifest) return null;
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Trajet</p>
+                        <p className="font-medium">{manifest.departurePlace} → {manifest.arrivalPlace}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Date</p>
+                        <p className="font-medium">{format(new Date(manifest.date), 'EEEE dd MMMM yyyy', { locale: fr })}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Véhicule</p>
+                        <p className="font-medium">{manifest.vehicle?.brand} {manifest.vehicle?.model} ({manifest.vehicle?.registration})</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Chauffeur</p>
+                        <p className="font-medium">{manifest.driver?.firstName} {manifest.driver?.lastName}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Client</p>
+                        <p className="font-medium">{manifest.service?.client?.name}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Passagers</p>
+                        <p className="font-medium">{manifest.passengerCount} personne(s)</p>
+                      </div>
+                    </div>
+                    
+                    {manifest.passengerList && (
+                      <div>
+                        <p className="text-sm font-medium mb-2">Liste des passagers:</p>
+                        <div className="bg-muted p-3 rounded-lg text-sm">
+                          {manifest.passengerList.split('\n').map((p, i) => (
+                            <div key={i}>{i + 1}. {p}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Action Buttons */}
+                    <div className="flex gap-2 pt-4">
+                      <Button 
+                        variant="outline" 
+                        className="flex-1"
+                        onClick={() => shareManifestViaWhatsApp(manifest)}
+                      >
+                        <MessageCircle className="h-4 w-4 mr-2 text-green-600" />
+                        Partager WhatsApp
+                      </Button>
+                      <Button 
+                        className="flex-1"
+                        onClick={() => printManifest(manifest)}
+                      >
+                        <Printer className="h-4 w-4 mr-2" />
+                        Imprimer
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+          
+          {previewType === "invoice" && generatedInvoice && (
+            <div className="space-y-4">
+              {/* Invoice Preview */}
+              <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">N° Facture</p>
+                  <p className="font-mono font-medium text-lg">{generatedInvoice.number}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Date</p>
+                  <p className="font-medium">{format(new Date(generatedInvoice.issueDate), 'dd/MM/yyyy')}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Client</p>
+                  <p className="font-medium">{generatedInvoice.client?.name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Type</p>
+                  <Badge variant={generatedInvoice.type === 'PRO_FORMA' ? 'secondary' : 'default'}>
+                    {generatedInvoice.type === 'PRO_FORMA' ? 'Pro Forma' : 'Facture'}
+                  </Badge>
+                </div>
+              </div>
+              
+              {/* Items Table */}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-center">Qté</TableHead>
+                    <TableHead className="text-right">Prix</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {generatedInvoice.items?.map((item, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{item.description}</TableCell>
+                      <TableCell className="text-center">{item.quantity}</TableCell>
+                      <TableCell className="text-right">{item.unitPrice.toLocaleString()} MAD</TableCell>
+                      <TableCell className="text-right font-medium">{item.total.toLocaleString()} MAD</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              
+              {/* Total */}
+              <div className="flex justify-end">
+                <div className="bg-primary/10 px-6 py-3 rounded-lg">
+                  <span className="text-lg font-bold">Total TTC: {generatedInvoice.total?.toLocaleString()} MAD</span>
+                </div>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  variant="outline" 
+                  className="flex-1"
+                  onClick={() => shareInvoiceViaWhatsApp(generatedInvoice)}
+                >
+                  <MessageCircle className="h-4 w-4 mr-2 text-green-600" />
+                  Partager WhatsApp
+                </Button>
+                <Button 
+                  className="flex-1"
+                  onClick={() => printInvoice(generatedInvoice)}
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  Imprimer
+                </Button>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowPreviewDialog(false);
+              setGeneratedManifests([]);
+              setGeneratedInvoice(null);
+            }}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Services Table */}
       <Card>
