@@ -1,293 +1,454 @@
 /**
- * Multi-Tenant Context
+ * Multi-Tenant Context and Access Control
  * 
- * Ce module gère l'isolation des données par tenant (client_id).
- * Toutes les requêtes doivent être filtrées automatiquement par tenant.
+ * Ce module fournit les utilitaires pour l'isolation des données par tenant.
+ * Tous les accès aux données doivent passer par ces fonctions.
  */
 
-import { Request } from 'next/server';
-import { db } from './db';
-import { UserRole } from '@prisma/client';
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "./db";
+import { UserRole } from "@prisma/client";
 
-// Interface pour le contexte utilisateur
-export interface UserContext {
+// Types
+export interface TenantUser {
   id: string;
   email: string;
   name: string;
   role: UserRole;
   tenantId: string | null;
-  isSuperAdmin: boolean;
-  isAdminClient: boolean;
+  companyId: string | null;
 }
 
-// Cache pour les requêtes
-const userCache = new Map<string, { user: UserContext; timestamp: number }>();
-const CACHE_TTL = 60 * 1000; // 1 minute
+export interface TenantContext {
+  user: TenantUser;
+  tenantId: string | null;
+  isSuperAdmin: boolean;
+  canAccessAllTenants: boolean;
+}
+
+// Rôles qui peuvent voir tous les tenants
+const GLOBAL_ACCESS_ROLES: UserRole[] = ["SUPER_ADMIN"];
+
+// Rôles qui sont limités à leur propre tenant
+const TENANT_LIMITED_ROLES: UserRole[] = ["ADMIN_CLIENT", "ADMIN", "AGENT", "COMPTABLE", "LECTURE"];
+
+// Rôles qui peuvent gérer les utilisateurs dans leur tenant
+const USER_MANAGEMENT_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN_CLIENT", "ADMIN"];
+
+// Rôles qui peuvent créer/modifier des données
+const WRITE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN_CLIENT", "ADMIN", "AGENT", "COMPTABLE"];
+
+// Rôles en lecture seule
+const READ_ONLY_ROLES: UserRole[] = ["LECTURE"];
 
 /**
- * Récupère le contexte utilisateur à partir de l'email (depuis le header ou session)
+ * Récupère l'utilisateur connecté depuis la session
  */
-export async function getUserContext(request?: Request): Promise<UserContext | null> {
+export async function getSessionUser(request?: NextRequest): Promise<TenantUser | null> {
   try {
-    // Essayer de récupérer l'email depuis le header d'autorisation
-    let email: string | null = null;
+    // Récupérer le token ou la session
+    const authHeader = request?.headers.get("authorization");
     
-    if (request) {
-      // Récupérer depuis le header x-user-email (pour les tests et API)
-      email = request.headers.get('x-user-email');
-      
-      // Sinon, essayer de récupérer depuis l'autorisation basic
-      if (!email) {
-        const authHeader = request.headers.get('authorization');
-        if (authHeader?.startsWith('Basic ')) {
-          const base64 = authHeader.slice(6);
-          const decoded = Buffer.from(base64, 'base64').toString();
-          email = decoded.split(':')[0];
-        }
-      }
-    }
+    // Pour l'instant, on utilise une requête directe pour obtenir l'utilisateur
+    // Dans une vraie app, on utiliserait NextAuth ou un système de token JWT
     
-    if (!email) {
-      return null;
-    }
-    
-    // Vérifier le cache
-    const cached = userCache.get(email);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-      return cached.user;
-    }
-    
-    // Récupérer l'utilisateur depuis la base
-    const user = await db.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        tenantId: true,
-      },
-    });
-    
-    if (!user) {
-      return null;
-    }
-    
-    const userContext: UserContext = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role as UserRole,
-      tenantId: user.tenantId,
-      isSuperAdmin: user.role === 'SUPER_ADMIN',
-      isAdminClient: user.role === 'ADMIN_CLIENT' || user.role === 'ADMIN',
-    };
-    
-    // Mettre en cache
-    userCache.set(email, { user: userContext, timestamp: Date.now() });
-    
-    return userContext;
+    // Simuler la récupération depuis les headers ou cookies
+    // En production, ceci serait remplacé par la vraie logique d'auth
+    return null;
   } catch (error) {
-    console.error('Error getting user context:', error);
+    console.error("Error getting session user:", error);
     return null;
   }
 }
 
 /**
- * Vérifie si l'utilisateur a accès à une ressource spécifique
+ * Récupère le contexte tenant complet pour un utilisateur
  */
-export function canAccessTenant(user: UserContext, tenantId: string | null): boolean {
-  // Super admin peut tout accéder
-  if (user.isSuperAdmin) {
+export async function getUserContext(userId: string): Promise<TenantContext | null> {
+  try {
+    const user = await db.$queryRaw`
+      SELECT id, email, name, role, "tenantId", "companyId"
+      FROM "User"
+      WHERE id = ${userId}
+    ` as any[];
+
+    if (!Array.isArray(user) || user.length === 0) {
+      return null;
+    }
+
+    const userData = user[0];
+    const isSuperAdmin = userData.role === "SUPER_ADMIN";
+    
+    return {
+      user: {
+        id: userData.id,
+        email: userData.email,
+        name: userData.name,
+        role: userData.role as UserRole,
+        tenantId: userData.tenantId,
+        companyId: userData.companyId,
+      },
+      tenantId: userData.tenantId,
+      isSuperAdmin,
+      canAccessAllTenants: isSuperAdmin,
+    };
+  } catch (error) {
+    console.error("Error getting user context:", error);
+    return null;
+  }
+}
+
+/**
+ * Vérifie si un utilisateur peut accéder à un tenant spécifique
+ */
+export function canAccessTenant(context: TenantContext, targetTenantId: string | null): boolean {
+  // Super admin peut tout voir
+  if (context.canAccessAllTenants) {
     return true;
   }
   
-  // Les autres utilisateurs ne peuvent accéder qu'à leur propre tenant
-  return user.tenantId === tenantId;
+  // Si pas de targetTenantId, on autorise (données sans tenant)
+  if (!targetTenantId) {
+    return true;
+  }
+  
+  // Sinon, l'utilisateur ne peut voir que son propre tenant
+  return context.tenantId === targetTenantId;
 }
 
 /**
- * Génère le filtre WHERE pour les requêtes Prisma
- * Utilise ceci dans toutes les requêtes pour filtrer par tenant
+ * Vérifie si un utilisateur a un rôle autorisé
  */
-export function getTenantFilter(user: UserContext): { tenantId: string } | {} {
-  // Super admin n'a pas besoin de filtre
-  if (user.isSuperAdmin) {
-    return {};
-  }
-  
-  // Les autres utilisateurs sont filtrés par leur tenant
-  if (!user.tenantId) {
-    throw new Error('User has no tenant assigned');
-  }
-  
-  return { tenantId: user.tenantId };
+export function hasRole(context: TenantContext, allowedRoles: UserRole[]): boolean {
+  return allowedRoles.includes(context.user.role);
 }
 
 /**
- * Génère le filtre WHERE avec inclusion des relations
+ * Vérifie si l'utilisateur peut écrire des données
  */
-export function getTenantFilterWithRelations(
-  user: UserContext,
-  relations: Record<string, { tenantId: string } | {}> = {}
-): Record<string, unknown> {
-  const baseFilter = getTenantFilter(user);
-  
-  return {
-    ...baseFilter,
-    ...relations,
+export function canWrite(context: TenantContext): boolean {
+  return hasRole(context, WRITE_ROLES);
+}
+
+/**
+ * Vérifie si l'utilisateur est en lecture seule
+ */
+export function isReadOnly(context: TenantContext): boolean {
+  return hasRole(context, READ_ONLY_ROLES);
+}
+
+/**
+ * Middleware pour vérifier l'accès tenant
+ */
+export function withTenantAccess(
+  handler: (request: NextRequest, context: TenantContext) => Promise<NextResponse>
+) {
+  return async (request: NextRequest): Promise<NextResponse> => {
+    try {
+      // Récupérer l'userId depuis les headers, cookies, ou query params
+      const userId = request.headers.get("x-user-id") || 
+                     request.nextUrl.searchParams.get("userId");
+      
+      if (!userId) {
+        return NextResponse.json(
+          { error: "Non authentifié" },
+          { status: 401 }
+        );
+      }
+
+      const context = await getUserContext(userId);
+      
+      if (!context) {
+        return NextResponse.json(
+          { error: "Utilisateur non trouvé" },
+          { status: 404 }
+        );
+      }
+
+      return handler(request, context);
+    } catch (error) {
+      console.error("Tenant access error:", error);
+      return NextResponse.json(
+        { error: "Erreur d'authentification" },
+        { status: 500 }
+      );
+    }
   };
 }
 
 /**
- * Vérifie qu'un utilisateur peut effectuer une action sur une ressource
+ * Génère la clause WHERE pour filtrer par tenant
  */
-export async function validateTenantAccess(
-  user: UserContext,
-  resourceType: 'vehicle' | 'driver' | 'client' | 'service' | 'invoice' | 'payment' | 'manifest',
-  resourceId: string
-): Promise<boolean> {
-  // Super admin peut tout accéder
-  if (user.isSuperAdmin) {
-    return true;
+export function getTenantWhereClause(context: TenantContext, alias?: string): any {
+  if (context.canAccessAllTenants) {
+    return {}; // Pas de filtre pour super admin
   }
   
-  if (!user.tenantId) {
-    return false;
+  const field = alias ? `${alias}."tenantId"` : '"tenantId"';
+  return { tenantId: context.tenantId };
+}
+
+/**
+ * Génère la clause WHERE en SQL brut
+ */
+export function getTenantWhereSQL(context: TenantContext, alias?: string): string {
+  if (context.canAccessAllTenants) {
+    return "1=1"; // Pas de filtre
   }
   
-  // Vérifier que la ressource appartient au tenant de l'utilisateur
-  const tableName = resourceType.charAt(0).toUpperCase() + resourceType.slice(1);
+  const field = alias ? `${alias}."tenantId"` : '"tenantId"';
+  const tenantId = context.tenantId?.replace(/'/g, "''") || "";
+  return `${field} = '${tenantId}'`;
+}
+
+/**
+ * Ajoute le tenantId aux données de création
+ */
+export function withTenantData(data: Record<string, any>, context: TenantContext): Record<string, any> {
+  if (context.canAccessAllTenants) {
+    return data; // Super admin peut créer sans tenant (rare)
+  }
   
+  return {
+    ...data,
+    tenantId: context.tenantId,
+  };
+}
+
+/**
+ * Vérifie qu'un enregistrement appartient au tenant de l'utilisateur
+ */
+export async function requireTenantAccess(
+  context: TenantContext,
+  table: string,
+  recordId: string
+): Promise<{ allowed: boolean; record?: any; error?: string }> {
+  if (context.canAccessAllTenants) {
+    // Super admin - vérifier juste que l'enregistrement existe
+    try {
+      const record = await db.$queryRawUnsafe(
+        `SELECT * FROM "${table}" WHERE id = $1`,
+        recordId
+      );
+      return { allowed: true, record: Array.isArray(record) ? record[0] : record };
+    } catch (error) {
+      return { allowed: false, error: "Enregistrement non trouvé" };
+    }
+  }
+
   try {
-    const resource = await (db as any)[resourceType].findUnique({
-      where: { id: resourceId },
-      select: { tenantId: true },
-    });
-    
-    return resource?.tenantId === user.tenantId;
+    const record = await db.$queryRawUnsafe(
+      `SELECT * FROM "${table}" WHERE id = $1 AND "tenantId" = $2`,
+      recordId,
+      context.tenantId
+    );
+
+    if (!Array.isArray(record) || record.length === 0) {
+      return { allowed: false, error: "Accès non autorisé à cet enregistrement" };
+    }
+
+    return { allowed: true, record: record[0] };
   } catch (error) {
-    console.error(`Error validating tenant access for ${resourceType}:`, error);
-    return false;
+    console.error("Error checking tenant access:", error);
+    return { allowed: false, error: "Erreur de vérification d'accès" };
   }
 }
 
 /**
- * Middleware pour vérifier l'accès tenant dans les routes API
+ * Liste tous les tenants (pour super admin uniquement)
  */
-export function withTenantAccess<T>(
-  handler: (request: Request, context: UserContext, tenantFilter: Record<string, unknown>) => Promise<T>
-) {
-  return async (request: Request): Promise<T | Response> => {
-    const userContext = await getUserContext(request);
+export async function listAllTenants(context: TenantContext) {
+  if (!context.canAccessAllTenants) {
+    return [];
+  }
+
+  try {
+    return await db.$queryRaw`
+      SELECT id, name, slug, email, plan, active, approved, blocked, "createdAt"
+      FROM "TenantAccount"
+      ORDER BY "createdAt" DESC
+    `;
+  } catch (error) {
+    console.error("Error listing tenants:", error);
+    return [];
+  }
+}
+
+/**
+ * Récupère les informations d'un tenant
+ */
+export async function getTenantInfo(tenantId: string) {
+  try {
+    const tenant = await db.$queryRaw`
+      SELECT id, name, slug, email, phone, address, city, ice, rc, if, cnss,
+             logo, stamp, signature, plan, active, approved, blocked
+      FROM "TenantAccount"
+      WHERE id = ${tenantId}
+    `;
     
-    if (!userContext) {
-      return new Response(
-        JSON.stringify({ error: 'Non autorisé' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
-      );
+    return Array.isArray(tenant) && tenant.length > 0 ? tenant[0] : null;
+  } catch (error) {
+    console.error("Error getting tenant info:", error);
+    return null;
+  }
+}
+
+/**
+ * Compte les enregistrements par table pour un tenant
+ */
+export async function getTenantStats(tenantId: string) {
+  try {
+    const [users, vehicles, drivers, clients, services, invoices, payments, manifests] = await Promise.all([
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "User" WHERE "tenantId" = $1`, tenantId),
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "Vehicle" WHERE "tenantId" = $1`, tenantId),
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "Driver" WHERE "tenantId" = $1`, tenantId),
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "Client" WHERE "tenantId" = $1`, tenantId),
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "Service" WHERE "tenantId" = $1`, tenantId),
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "Invoice" WHERE "tenantId" = $1`, tenantId),
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "Payment" WHERE "tenantId" = $1`, tenantId),
+      db.$queryRawUnsafe(`SELECT COUNT(*) as count FROM "Manifest" WHERE "tenantId" = $1`, tenantId),
+    ]);
+
+    return {
+      users: (users as any)[0]?.count || 0,
+      vehicles: (vehicles as any)[0]?.count || 0,
+      drivers: (drivers as any)[0]?.count || 0,
+      clients: (clients as any)[0]?.count || 0,
+      services: (services as any)[0]?.count || 0,
+      invoices: (invoices as any)[0]?.count || 0,
+      payments: (payments as any)[0]?.count || 0,
+      manifests: (manifests as any)[0]?.count || 0,
+    };
+  } catch (error) {
+    console.error("Error getting tenant stats:", error);
+    return {
+      users: 0,
+      vehicles: 0,
+      drivers: 0,
+      clients: 0,
+      services: 0,
+      invoices: 0,
+      payments: 0,
+      manifests: 0,
+    };
+  }
+}
+
+/**
+ * Exporte les données d'un tenant en format spécifié
+ */
+export async function exportTenantData(
+  tenantId: string,
+  format: "json" | "csv",
+  tables?: string[]
+): Promise<{ data: any; filename: string; contentType: string }> {
+  const defaultTables = ["users", "vehicles", "drivers", "clients", "services", "invoices", "payments", "manifests"];
+  const tablesToExport = tables || defaultTables;
+  
+  const exportData: Record<string, any[]> = {};
+  
+  for (const table of tablesToExport) {
+    try {
+      let result: any[];
+      
+      switch (table) {
+        case "users":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, email, name, role, active, approved, "createdAt" FROM "User" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        case "vehicles":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, brand, model, registration, capacity, type, status FROM "Vehicle" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        case "drivers":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, "firstName", "lastName", phone, email, available FROM "Driver" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        case "clients":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, name, "contactName", email, phone, city FROM "Client" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        case "services":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, type, description, date, "departurePlace", "arrivalPlace", price, status FROM "Service" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        case "invoices":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, number, type, status, "issueDate", total, currency FROM "Invoice" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        case "payments":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, amount, currency, method, "paymentDate", reference FROM "Payment" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        case "manifests":
+          result = await db.$queryRawUnsafe(
+            `SELECT id, date, "departurePlace", "arrivalPlace", "passengerCount" FROM "Manifest" WHERE "tenantId" = $1`,
+            tenantId
+          ) as any[];
+          break;
+        default:
+          result = [];
+      }
+      
+      exportData[table] = Array.isArray(result) ? result : [];
+    } catch (error) {
+      console.error(`Error exporting table ${table}:`, error);
+      exportData[table] = [];
     }
+  }
+  
+  const tenant = await getTenantInfo(tenantId);
+  const tenantName = (tenant as any)?.name || "tenant";
+  const date = new Date().toISOString().split("T")[0];
+  
+  if (format === "json") {
+    return {
+      data: JSON.stringify(exportData, null, 2),
+      filename: `export_${tenantName}_${date}.json`,
+      contentType: "application/json",
+    };
+  } else {
+    // Format CSV - chaque table comme section
+    let csvContent = "";
     
-    // Vérifier que l'utilisateur est approuvé
-    if (!userContext.isSuperAdmin) {
-      // Pour les non-super-admin, vérifier qu'ils ont un tenant
-      if (!userContext.tenantId) {
-        return new Response(
-          JSON.stringify({ error: 'Utilisateur sans tenant assigné' }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        );
+    for (const [table, records] of Object.entries(exportData)) {
+      if (records.length === 0) continue;
+      
+      csvContent += `\n# ${table.toUpperCase()}\n`;
+      
+      // Headers
+      const headers = Object.keys(records[0]);
+      csvContent += headers.join(",") + "\n";
+      
+      // Rows
+      for (const record of records) {
+        csvContent += headers.map(h => {
+          const val = record[h];
+          if (val === null || val === undefined) return "";
+          if (typeof val === "string" && val.includes(",")) return `"${val}"`;
+          return String(val);
+        }).join(",") + "\n";
       }
     }
     
-    const tenantFilter = getTenantFilter(userContext);
-    
-    return handler(request, userContext, tenantFilter);
-  };
-}
-
-/**
- * Crée un nouveau tenant avec les paramètres par défaut
- */
-export async function createTenant(data: {
-  name: string;
-  email: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  ice?: string;
-}): Promise<{ id: string; slug: string }> {
-  // Générer un slug unique
-  const baseSlug = data.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 50);
-  
-  let slug = baseSlug;
-  let counter = 1;
-  
-  // Vérifier l'unicité du slug
-  while (true) {
-    const existing = await db.tenantAccount.findUnique({
-      where: { slug },
-    });
-    
-    if (!existing) break;
-    
-    slug = `${baseSlug}-${counter}`;
-    counter++;
-  }
-  
-  const tenant = await db.tenantAccount.create({
-    data: {
-      name: data.name,
-      slug,
-      email: data.email,
-      phone: data.phone,
-      address: data.address,
-      city: data.city,
-      ice: data.ice,
-      active: true,
-      approved: false, // Nécessite approbation du super_admin
-    },
-  });
-  
-  return { id: tenant.id, slug: tenant.slug };
-}
-
-/**
- * Crée un utilisateur admin_client pour un tenant
- */
-export async function createTenantAdmin(
-  tenantId: string,
-  data: {
-    email: string;
-    password: string;
-    name: string;
-  }
-): Promise<{ id: string; email: string }> {
-  const user = await db.user.create({
-    data: {
-      email: data.email,
-      password: data.password, // Note: le mot de passe doit être hashé avant
-      name: data.name,
-      role: 'ADMIN_CLIENT',
-      tenantId,
-      active: true,
-      approved: true, // Admin du tenant est auto-approuvé
-    },
-  });
-  
-  return { id: user.id, email: user.email };
-}
-
-/**
- * Nettoie le cache utilisateur (à appeler lors de la déconnexion ou changement de rôle)
- */
-export function clearUserCache(email?: string): void {
-  if (email) {
-    userCache.delete(email);
-  } else {
-    userCache.clear();
+    return {
+      data: csvContent,
+      filename: `export_${tenantName}_${date}.csv`,
+      contentType: "text/csv",
+    };
   }
 }
