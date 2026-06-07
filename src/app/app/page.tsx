@@ -1330,6 +1330,8 @@ function ServicesView() {
   const [generatedInvoice, setGeneratedInvoice] = useState<GeneratedInvoice | null>(null);
   const [previewType, setPreviewType] = useState<"manifest" | "invoice">("invoice");
   const [currentManifestIndex, setCurrentManifestIndex] = useState(0);
+  const [pendingManifestCount, setPendingManifestCount] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -1374,6 +1376,7 @@ function ServicesView() {
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setShowDocDialog(false);
       setSelectedServices([]);
+      setIsGenerating(false);
       // Show preview
       setGeneratedInvoice(data);
       setPreviewType("invoice");
@@ -1381,6 +1384,7 @@ function ServicesView() {
       toast({ title: "Document créé", description: "Le document a été généré avec succès" });
     },
     onError: () => {
+      setIsGenerating(false);
       toast({ title: "Erreur", description: "Impossible de créer le document", variant: "destructive" });
     },
   });
@@ -1390,16 +1394,27 @@ function ServicesView() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["manifests"] });
       queryClient.invalidateQueries({ queryKey: ["services"] });
-      setShowDocDialog(false);
       // Add to generated manifests list
       setGeneratedManifests((prev) => [...prev, data]);
-      setPreviewType("manifest");
-      setCurrentManifestIndex(0);
-      setShowPreviewDialog(true);
-      setSelectedServices([]);
-      toast({ title: "Manifeste créé", description: "Le manifeste a été généré avec succès" });
+      // Decrease pending count
+      setPendingManifestCount((prev) => {
+        const newCount = prev - 1;
+        if (newCount === 0) {
+          // All manifests created, show preview
+          setShowDocDialog(false);
+          setPreviewType("manifest");
+          setCurrentManifestIndex(0);
+          setShowPreviewDialog(true);
+          setSelectedServices([]);
+          setIsGenerating(false);
+          toast({ title: "Manifeste(s) créé(s)", description: "Les manifestes ont été générés avec succès" });
+        }
+        return newCount;
+      });
     },
     onError: () => {
+      setPendingManifestCount((prev) => prev - 1);
+      setIsGenerating(false);
       toast({ title: "Erreur", description: "Impossible de créer le manifeste", variant: "destructive" });
     },
   });
@@ -1419,9 +1434,11 @@ function ServicesView() {
     }
 
     if (docType === "manifest") {
-      // Clear previous manifests and close preview
+      // Clear previous manifests and set up for batch creation
       setGeneratedManifests([]);
       setShowPreviewDialog(false);
+      setPendingManifestCount(selectedData.length);
+      setIsGenerating(true);
       // Create manifests for each service
       selectedData.forEach((service) => {
         createManifestMutation.mutate({
@@ -1444,6 +1461,7 @@ function ServicesView() {
         unitPrice: service.price,
       }));
 
+      setIsGenerating(true);
       createInvoiceMutation.mutate({
         clientId: clientIds[0],
         type: docType === "proforma" ? "PRO_FORMA" : "FINALE",
@@ -1843,8 +1861,8 @@ ${itemsText}
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setShowDocDialog(false)}>Annuler</Button>
-                  <Button onClick={handleGenerateDocuments} disabled={createInvoiceMutation.isPending || createManifestMutation.isPending}>
-                    {createInvoiceMutation.isPending || createManifestMutation.isPending ? "Génération..." : "Générer"}
+                  <Button onClick={handleGenerateDocuments} disabled={isGenerating || createInvoiceMutation.isPending || createManifestMutation.isPending}>
+                    {isGenerating || createInvoiceMutation.isPending || createManifestMutation.isPending ? "Génération en cours..." : "Générer"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
