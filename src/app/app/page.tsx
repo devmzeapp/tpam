@@ -92,6 +92,7 @@ import {
   Key,
   Gauge,
   Droplet,
+  Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthPage } from "@/components/auth/auth-page";
@@ -1117,7 +1118,7 @@ function PlanningView() {
 
       {/* Service Detail Dialog */}
       <Dialog open={!!selectedService} onOpenChange={() => setSelectedService(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Détail de la prestation</DialogTitle>
           </DialogHeader>
@@ -1160,6 +1161,118 @@ function PlanningView() {
               <div>
                 <Label className="text-muted-foreground">Statut</Label>
                 <Badge className="mt-1">{selectedService.status}</Badge>
+              </div>
+
+              {/* Boutons d'action */}
+              <div className="flex gap-2 pt-4 border-t">
+                <Button 
+                  variant="outline" 
+                  className="flex-1"
+                  onClick={() => {
+                    const text = `🚐 *PRESTATION TPAM*\n\n` +
+                      `👤 Client: ${selectedService.client?.name}\n` +
+                      `📅 Date: ${format(new Date(selectedService.date), "dd/MM/yyyy HH:mm", { locale: fr })}\n` +
+                      `📍 Trajet: ${selectedService.departurePlace} → ${selectedService.arrivalPlace}\n` +
+                      `🚗 Véhicule: ${selectedService.vehicle?.brand} ${selectedService.vehicle?.model} (${selectedService.vehicle?.registration})\n` +
+                      `👨‍✈️ Chauffeur: ${selectedService.driver?.firstName} ${selectedService.driver?.lastName}\n` +
+                      `💰 Prix: ${selectedService.price?.toLocaleString()} MAD\n` +
+                      `📝 Type: ${selectedService.type}`;
+                    navigator.clipboard.writeText(text);
+                    toast({ title: "Copié!", description: "Détails copiés dans le presse-papier" });
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copier
+                </Button>
+                <Button 
+                  variant="default" 
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  onClick={() => {
+                    const text = `🚐 *PRESTATION TPAM*\n\n` +
+                      `👤 Client: ${selectedService.client?.name}\n` +
+                      `📅 Date: ${format(new Date(selectedService.date), "dd/MM/yyyy HH:mm", { locale: fr })}\n` +
+                      `📍 Trajet: ${selectedService.departurePlace} → ${selectedService.arrivalPlace}\n` +
+                      `🚗 Véhicule: ${selectedService.vehicle?.brand} ${selectedService.vehicle?.model} (${selectedService.vehicle?.registration})\n` +
+                      `👨‍✈️ Chauffeur: ${selectedService.driver?.firstName} ${selectedService.driver?.lastName}\n` +
+                      `💰 Prix: ${selectedService.price?.toLocaleString()} MAD\n` +
+                      `📝 Type: ${selectedService.type}`;
+                    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                    window.open(whatsappUrl, "_blank");
+                  }}
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  WhatsApp
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    const printContent = `
+                      <html>
+                      <head>
+                        <title>Prestation - ${selectedService.client?.name}</title>
+                        <style>
+                          body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
+                          h1 { color: #3b82f6; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
+                          .info { margin: 10px 0; }
+                          .label { color: #666; font-size: 12px; }
+                          .value { font-size: 16px; font-weight: bold; }
+                          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+                          .route { background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                          .price { font-size: 24px; color: #10b981; font-weight: bold; }
+                          .footer { margin-top: 30px; text-align: center; color: #999; font-size: 12px; }
+                        </style>
+                      </head>
+                      <body>
+                        <h1>🚐 Prestation TPAM</h1>
+                        <div class="grid">
+                          <div class="info">
+                            <div class="label">Client</div>
+                            <div class="value">${selectedService.client?.name}</div>
+                          </div>
+                          <div class="info">
+                            <div class="label">Type</div>
+                            <div class="value">${selectedService.type}</div>
+                          </div>
+                          <div class="info">
+                            <div class="label">Date</div>
+                            <div class="value">${format(new Date(selectedService.date), "dd/MM/yyyy HH:mm", { locale: fr })}</div>
+                          </div>
+                          <div class="info">
+                            <div class="label">Prix</div>
+                            <div class="price">${selectedService.price?.toLocaleString()} MAD</div>
+                          </div>
+                        </div>
+                        <div class="route">
+                          <div class="label">Trajet</div>
+                          <div class="value">${selectedService.departurePlace} → ${selectedService.arrivalPlace}</div>
+                        </div>
+                        <div class="grid">
+                          <div class="info">
+                            <div class="label">Véhicule</div>
+                            <div class="value">${selectedService.vehicle?.brand} ${selectedService.vehicle?.model}<br><small>${selectedService.vehicle?.registration}</small></div>
+                          </div>
+                          <div class="info">
+                            <div class="label">Chauffeur</div>
+                            <div class="value">${selectedService.driver?.firstName} ${selectedService.driver?.lastName}</div>
+                          </div>
+                        </div>
+                        <div class="footer">
+                          Document généré par TPAM - ${format(new Date(), "dd/MM/yyyy")}
+                        </div>
+                      </body>
+                      </html>
+                    `;
+                    const printWindow = window.open("", "_blank");
+                    if (printWindow) {
+                      printWindow.document.write(printContent);
+                      printWindow.document.close();
+                      printWindow.print();
+                    }
+                  }}
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  Imprimer
+                </Button>
               </div>
             </div>
           )}
@@ -1516,6 +1629,95 @@ function ServicesView() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
+                          <DropdownMenuLabel>Partager</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => {
+                            const text = `🚐 *PRESTATION TPAM*\n\n` +
+                              `👤 Client: ${service.client?.name}\n` +
+                              `📅 Date: ${format(new Date(service.date), "dd/MM/yyyy HH:mm", { locale: fr })}\n` +
+                              `📍 Trajet: ${service.departurePlace} → ${service.arrivalPlace}\n` +
+                              `🚗 Véhicule: ${service.vehicle?.brand} ${service.vehicle?.model}\n` +
+                              `👨‍✈️ Chauffeur: ${service.driver?.firstName} ${service.driver?.lastName}\n` +
+                              `💰 Prix: ${service.price?.toLocaleString()} MAD`;
+                            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                            window.open(whatsappUrl, "_blank");
+                          }}>
+                            <MessageCircle className="h-4 w-4 mr-2 text-green-600" />
+                            WhatsApp
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            const printContent = `
+                              <html>
+                              <head>
+                                <title>Prestation - ${service.client?.name}</title>
+                                <style>
+                                  body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; }
+                                  h1 { color: #3b82f6; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
+                                  .info { margin: 10px 0; }
+                                  .label { color: #666; font-size: 12px; }
+                                  .value { font-size: 16px; font-weight: bold; }
+                                  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+                                  .route { background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                                  .price { font-size: 24px; color: #10b981; font-weight: bold; }
+                                  .footer { margin-top: 30px; text-align: center; color: #999; font-size: 12px; }
+                                </style>
+                              </head>
+                              <body>
+                                <h1>🚐 Prestation TPAM</h1>
+                                <div class="grid">
+                                  <div class="info">
+                                    <div class="label">Client</div>
+                                    <div class="value">${service.client?.name}</div>
+                                  </div>
+                                  <div class="info">
+                                    <div class="label">Type</div>
+                                    <div class="value">${service.type}</div>
+                                  </div>
+                                  <div class="info">
+                                    <div class="label">Date</div>
+                                    <div class="value">${format(new Date(service.date), "dd/MM/yyyy HH:mm")}</div>
+                                  </div>
+                                  <div class="info">
+                                    <div class="label">Prix</div>
+                                    <div class="price">${service.price?.toLocaleString()} MAD</div>
+                                  </div>
+                                </div>
+                                <div class="route">
+                                  <div class="label">Trajet</div>
+                                  <div class="value">${service.departurePlace} → ${service.arrivalPlace}</div>
+                                </div>
+                                <div class="grid">
+                                  <div class="info">
+                                    <div class="label">Véhicule</div>
+                                    <div class="value">${service.vehicle?.brand} ${service.vehicle?.model}</div>
+                                  </div>
+                                  <div class="info">
+                                    <div class="label">Chauffeur</div>
+                                    <div class="value">${service.driver?.firstName} ${service.driver?.lastName}</div>
+                                  </div>
+                                </div>
+                                <div class="footer">Document généré par TPAM - ${format(new Date(), "dd/MM/yyyy")}</div>
+                              </body>
+                              </html>
+                            `;
+                            const printWindow = window.open("", "_blank");
+                            if (printWindow) {
+                              printWindow.document.write(printContent);
+                              printWindow.document.close();
+                              printWindow.print();
+                            }
+                          }}>
+                            <Printer className="h-4 w-4 mr-2" />
+                            Imprimer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            const text = `🚐 PRESTATION TPAM\n\nClient: ${service.client?.name}\nDate: ${format(new Date(service.date), "dd/MM/yyyy HH:mm")}\nTrajet: ${service.departurePlace} → ${service.arrivalPlace}\nVéhicule: ${service.vehicle?.brand} ${service.vehicle?.model}\nChauffeur: ${service.driver?.firstName} ${service.driver?.lastName}\nPrix: ${service.price?.toLocaleString()} MAD`;
+                            navigator.clipboard.writeText(text);
+                            toast({ title: "Copié!", description: "Détails copiés dans le presse-papier" });
+                          }}>
+                            <Copy className="h-4 w-4 mr-2" />
+                            Copier
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuLabel>Générer document</DropdownMenuLabel>
                           <DropdownMenuItem onClick={() => {
                             setSelectedServices([service.id]);
