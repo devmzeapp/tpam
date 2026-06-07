@@ -39,10 +39,19 @@ export async function POST(request: NextRequest) {
         brand: data.brand,
         model: data.model,
         registration: data.registration,
-        capacity: parseInt(data.capacity),
+        capacity: parseInt(data.capacity) || 1,
         type: data.type,
         status: data.status || "available",
         notes: data.notes,
+        // Kilométrage et maintenance
+        currentKm: data.currentKm ? parseInt(data.currentKm) : null,
+        lastOilChangeDate: data.lastOilChangeDate ? new Date(data.lastOilChangeDate) : null,
+        lastOilChangeKm: data.lastOilChangeKm ? parseInt(data.lastOilChangeKm) : null,
+        nextOilChangeKm: data.nextOilChangeKm ? parseInt(data.nextOilChangeKm) : null,
+        // Documents administratifs
+        insuranceExpiry: data.insuranceExpiry ? new Date(data.insuranceExpiry) : null,
+        vignetteExpiry: data.vignetteExpiry ? new Date(data.vignetteExpiry) : null,
+        technicalInspectionExpiry: data.technicalInspectionExpiry ? new Date(data.technicalInspectionExpiry) : null,
       },
     });
 

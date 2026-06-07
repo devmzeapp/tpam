@@ -90,6 +90,8 @@ import {
   MessageCircle,
   Globe,
   Key,
+  Gauge,
+  Droplet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthPage } from "@/components/auth/auth-page";
@@ -124,6 +126,15 @@ interface Vehicle {
   type?: string;
   status: string;
   notes?: string;
+  // Kilométrage et maintenance
+  currentKm?: number;
+  lastOilChangeDate?: string;
+  lastOilChangeKm?: number;
+  nextOilChangeKm?: number;
+  // Documents administratifs
+  insuranceExpiry?: string;
+  vignetteExpiry?: string;
+  technicalInspectionExpiry?: string;
 }
 
 interface Driver {
@@ -2065,6 +2076,9 @@ function DebtorsView() {
 
 function VehiclesView() {
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showMaintenanceDialog, setShowMaintenanceDialog] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [activeTab, setActiveTab] = useState<"list" | "maintenance">("list");
   const queryClient = useQueryClient();
 
   const { data: vehicles, isLoading, error } = useQuery({
@@ -2084,6 +2098,27 @@ function VehiclesView() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: async (data: { id: string; updates: Partial<Vehicle> }) => {
+      const res = await fetch(`/api/vehicles/${data.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data.updates),
+      });
+      if (!res.ok) throw new Error("Failed to update vehicle");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      setShowMaintenanceDialog(false);
+      setSelectedVehicle(null);
+      toast({ title: "Véhicule mis à jour", description: "Les informations de maintenance ont été enregistrées" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de mettre à jour le véhicule", variant: "destructive" });
+    },
+  });
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "available":
@@ -2097,123 +2132,503 @@ function VehiclesView() {
     }
   };
 
+  // Calculer les jours restants avant expiration
+  const getDaysUntilExpiry = (dateStr?: string) => {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    const today = new Date();
+    const diffTime = date.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  // Obtenir la couleur d'alerte basée sur les jours restants
+  const getExpiryStatus = (days: number | null) => {
+    if (days === null) return { color: "text-muted-foreground", bg: "bg-muted", label: "Non définie" };
+    if (days < 0) return { color: "text-red-600", bg: "bg-red-100 dark:bg-red-950", label: "Expiré" };
+    if (days <= 15) return { color: "text-red-600", bg: "bg-red-100 dark:bg-red-950", label: `${days}j` };
+    if (days <= 30) return { color: "text-orange-600", bg: "bg-orange-100 dark:bg-orange-950", label: `${days}j` };
+    return { color: "text-green-600", bg: "bg-green-100 dark:bg-green-950", label: `${days}j` };
+  };
+
+  // Calculer le kilométrage restant avant vidange
+  const getKmUntilOilChange = (vehicle: Vehicle) => {
+    if (!vehicle.currentKm || !vehicle.nextOilChangeKm) return null;
+    return vehicle.nextOilChangeKm - vehicle.currentKm;
+  };
+
+  // Vérifier si une vidange est nécessaire
+  const needsOilChange = (vehicle: Vehicle) => {
+    const kmRemaining = getKmUntilOilChange(vehicle);
+    if (kmRemaining === null) return false;
+    return kmRemaining <= 1000; // Alerte si moins de 1000 km
+  };
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Gestion des véhicules</h3>
-        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Nouveau véhicule
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Nouveau véhicule</DialogTitle>
-            </DialogHeader>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.target as HTMLFormElement);
-                createMutation.mutate({
-                  brand: formData.get("brand"),
-                  model: formData.get("model"),
-                  registration: formData.get("registration"),
-                  capacity: Number(formData.get("capacity")),
-                  type: formData.get("type"),
-                  status: "available",
-                });
-              }}
-              className="space-y-4"
-            >
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Marque *</Label>
-                  <Input name="brand" placeholder="Ex: Mercedes" required />
+        <div className="flex items-center gap-2">
+          <Button variant={activeTab === "list" ? "default" : "outline"} onClick={() => setActiveTab("list")}>
+            <Car className="h-4 w-4 mr-2" />
+            Liste
+          </Button>
+          <Button variant={activeTab === "maintenance" ? "default" : "outline"} onClick={() => setActiveTab("maintenance")}>
+            <Settings className="h-4 w-4 mr-2" />
+            Maintenance
+          </Button>
+          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Nouveau véhicule
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nouveau véhicule</DialogTitle>
+              </DialogHeader>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.target as HTMLFormElement);
+                  createMutation.mutate({
+                    brand: formData.get("brand"),
+                    model: formData.get("model"),
+                    registration: formData.get("registration"),
+                    capacity: Number(formData.get("capacity")),
+                    type: formData.get("type"),
+                    status: "available",
+                  });
+                }}
+                className="space-y-4"
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Marque *</Label>
+                    <Input name="brand" placeholder="Ex: Mercedes" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Modèle *</Label>
+                    <Input name="model" placeholder="Ex: Sprinter" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Immatriculation *</Label>
+                    <Input name="registration" placeholder="Ex: A-1234-MA" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Capacité</Label>
+                    <Input name="capacity" type="number" placeholder="Ex: 16" min={1} />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>Type</Label>
+                    <Select name="type" defaultValue="Van">
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Van">Van</SelectItem>
+                        <SelectItem value="Bus">Bus</SelectItem>
+                        <SelectItem value="Berline">Berline</SelectItem>
+                        <SelectItem value="SUV">SUV</SelectItem>
+                        <SelectItem value="Minibus">Minibus</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Modèle *</Label>
-                  <Input name="model" placeholder="Ex: Sprinter" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Immatriculation *</Label>
-                  <Input name="registration" placeholder="Ex: A-1234-MA" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Capacité</Label>
-                  <Input name="capacity" type="number" placeholder="Ex: 16" min={1} />
-                </div>
-                <div className="space-y-2 col-span-2">
-                  <Label>Type</Label>
-                  <Select name="type" defaultValue="Van">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Van">Van</SelectItem>
-                      <SelectItem value="Bus">Bus</SelectItem>
-                      <SelectItem value="Berline">Berline</SelectItem>
-                      <SelectItem value="SUV">SUV</SelectItem>
-                      <SelectItem value="Minibus">Minibus</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "Création..." : "Créer"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <Button type="submit" disabled={createMutation.isPending}>
+                    {createMutation.isPending ? "Création..." : "Créer"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {isLoading ? (
-          <div className="col-span-full text-center py-8">Chargement...</div>
-        ) : error ? (
-          <div className="col-span-full text-center py-8">
-            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
-            <p className="text-red-600 font-medium">Erreur lors du chargement des véhicules</p>
-            <p className="text-muted-foreground text-sm mt-2">{String(error)}</p>
-            <Button variant="outline" className="mt-4" onClick={() => queryClient.invalidateQueries({ queryKey: ["vehicles"] })}>
-              Réessayer
-            </Button>
-          </div>
-        ) : vehicles?.length === 0 ? (
-          <div className="col-span-full text-center py-8 text-muted-foreground">
-            Aucun véhicule enregistré
-          </div>
-        ) : (
-          vehicles?.map((vehicle) => (
-            <Card key={vehicle.id}>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">
-                    {vehicle.brand} {vehicle.model}
-                  </CardTitle>
-                  {getStatusBadge(vehicle.status)}
-                </div>
-                <CardDescription>{vehicle.registration}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Users className="h-4 w-4" />
-                    {vehicle.capacity} places
-                  </div>
-                  {vehicle.type && (
-                    <Badge variant="outline">{vehicle.type}</Badge>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+      {activeTab === "list" ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {isLoading ? (
+            <div className="col-span-full text-center py-8">Chargement...</div>
+          ) : error ? (
+            <div className="col-span-full text-center py-8">
+              <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
+              <p className="text-red-600 font-medium">Erreur lors du chargement des véhicules</p>
+              <p className="text-muted-foreground text-sm mt-2">{String(error)}</p>
+              <Button variant="outline" className="mt-4" onClick={() => queryClient.invalidateQueries({ queryKey: ["vehicles"] })}>
+                Réessayer
+              </Button>
+            </div>
+          ) : vehicles?.length === 0 ? (
+            <div className="col-span-full text-center py-8 text-muted-foreground">
+              Aucun véhicule enregistré
+            </div>
+          ) : (
+            vehicles?.map((vehicle) => {
+              const insuranceDays = getDaysUntilExpiry(vehicle.insuranceExpiry);
+              const vignetteDays = getDaysUntilExpiry(vehicle.vignetteExpiry);
+              const technicalDays = getDaysUntilExpiry(vehicle.technicalInspectionExpiry);
+              const oilChangeNeeded = needsOilChange(vehicle);
+
+              return (
+                <Card key={vehicle.id} className="overflow-hidden">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">
+                        {vehicle.brand} {vehicle.model}
+                      </CardTitle>
+                      {getStatusBadge(vehicle.status)}
+                    </div>
+                    <CardDescription>{vehicle.registration}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Users className="h-4 w-4" />
+                        {vehicle.capacity} places
+                      </div>
+                      {vehicle.type && (
+                        <Badge variant="outline">{vehicle.type}</Badge>
+                      )}
+                    </div>
+
+                    {/* Kilométrage */}
+                    {vehicle.currentKm && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Kilométrage</span>
+                        <span className={cn("font-medium", oilChangeNeeded && "text-orange-600")}>
+                          {vehicle.currentKm.toLocaleString()} km
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Alertes documents */}
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className={cn("p-2 rounded text-center", getExpiryStatus(insuranceDays).bg)}>
+                        <div className="font-medium">Assurance</div>
+                        <div className={getExpiryStatus(insuranceDays).color}>
+                          {getExpiryStatus(insuranceDays).label}
+                        </div>
+                      </div>
+                      <div className={cn("p-2 rounded text-center", getExpiryStatus(vignetteDays).bg)}>
+                        <div className="font-medium">Vignette</div>
+                        <div className={getExpiryStatus(vignetteDays).color}>
+                          {getExpiryStatus(vignetteDays).label}
+                        </div>
+                      </div>
+                      <div className={cn("p-2 rounded text-center", getExpiryStatus(technicalDays).bg)}>
+                        <div className="font-medium">Ctrl Tech</div>
+                        <div className={getExpiryStatus(technicalDays).color}>
+                          {getExpiryStatus(technicalDays).label}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Alerte vidange */}
+                    {oilChangeNeeded && (
+                      <div className="flex items-center gap-2 p-2 bg-orange-100 dark:bg-orange-950 rounded text-sm text-orange-700 dark:text-orange-300">
+                        <AlertCircle className="h-4 w-4" />
+                        Vidange requise ({getKmUntilOilChange(vehicle)} km restants)
+                      </div>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        setSelectedVehicle(vehicle);
+                        setShowMaintenanceDialog(true);
+                      }}
+                    >
+                      <Settings className="h-4 w-4 mr-2" />
+                      Gérer maintenance
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+        </div>
+      ) : (
+        /* Vue Maintenance */
+        <Card>
+          <CardHeader>
+            <CardTitle>Suivi de maintenance</CardTitle>
+            <CardDescription>Gérez les vidanges, assurances, vignettes et contrôles techniques</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Véhicule</TableHead>
+                  <TableHead>Kilométrage</TableHead>
+                  <TableHead>Prochaine vidange</TableHead>
+                  <TableHead>Assurance</TableHead>
+                  <TableHead>Vignette</TableHead>
+                  <TableHead>Ctrl Technique</TableHead>
+                  <TableHead className="w-[100px]"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">Chargement...</TableCell>
+                  </TableRow>
+                ) : vehicles?.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      Aucun véhicule enregistré
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  vehicles?.map((vehicle) => {
+                    const insuranceDays = getDaysUntilExpiry(vehicle.insuranceExpiry);
+                    const vignetteDays = getDaysUntilExpiry(vehicle.vignetteExpiry);
+                    const technicalDays = getDaysUntilExpiry(vehicle.technicalInspectionExpiry);
+                    const kmRemaining = getKmUntilOilChange(vehicle);
+
+                    return (
+                      <TableRow key={vehicle.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{vehicle.brand} {vehicle.model}</p>
+                            <p className="text-sm text-muted-foreground">{vehicle.registration}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {vehicle.currentKm ? `${vehicle.currentKm.toLocaleString()} km` : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {kmRemaining !== null ? (
+                            <span className={cn(kmRemaining <= 1000 && "text-orange-600 font-medium")}>
+                              {kmRemaining > 0 ? `${kmRemaining.toLocaleString()} km` : "À faire"}
+                            </span>
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {vehicle.insuranceExpiry ? (
+                            <div className={cn(insuranceDays !== null && insuranceDays <= 30 && "text-orange-600")}>
+                              {format(new Date(vehicle.insuranceExpiry), "dd/MM/yyyy")}
+                              {insuranceDays !== null && insuranceDays <= 30 && (
+                                <span className="ml-1 text-xs">({insuranceDays}j)</span>
+                              )}
+                            </div>
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {vehicle.vignetteExpiry ? (
+                            <div className={cn(vignetteDays !== null && vignetteDays <= 30 && "text-orange-600")}>
+                              {format(new Date(vehicle.vignetteExpiry), "dd/MM/yyyy")}
+                              {vignetteDays !== null && vignetteDays <= 30 && (
+                                <span className="ml-1 text-xs">({vignetteDays}j)</span>
+                              )}
+                            </div>
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {vehicle.technicalInspectionExpiry ? (
+                            <div className={cn(technicalDays !== null && technicalDays <= 30 && "text-orange-600")}>
+                              {format(new Date(vehicle.technicalInspectionExpiry), "dd/MM/yyyy")}
+                              {technicalDays !== null && technicalDays <= 30 && (
+                                <span className="ml-1 text-xs">({technicalDays}j)</span>
+                              )}
+                            </div>
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedVehicle(vehicle);
+                              setShowMaintenanceDialog(true);
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Dialog de maintenance */}
+      <Dialog open={showMaintenanceDialog} onOpenChange={setShowMaintenanceDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Maintenance - {selectedVehicle?.brand} {selectedVehicle?.model}</DialogTitle>
+            <DialogDescription>{selectedVehicle?.registration}</DialogDescription>
+          </DialogHeader>
+          {selectedVehicle && (
+            <VehicleMaintenanceForm
+              vehicle={selectedVehicle}
+              onSubmit={(updates) => updateMutation.mutate({ id: selectedVehicle.id, updates })}
+              isLoading={updateMutation.isPending}
+              onClose={() => {
+                setShowMaintenanceDialog(false);
+                setSelectedVehicle(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// ==================== VEHICLE MAINTENANCE FORM ====================
+
+function VehicleMaintenanceForm({
+  vehicle,
+  onSubmit,
+  isLoading,
+  onClose,
+}: {
+  vehicle: Vehicle;
+  onSubmit: (updates: Partial<Vehicle>) => void;
+  isLoading: boolean;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    currentKm: vehicle.currentKm || 0,
+    lastOilChangeDate: vehicle.lastOilChangeDate ? format(new Date(vehicle.lastOilChangeDate), "yyyy-MM-dd") : "",
+    lastOilChangeKm: vehicle.lastOilChangeKm || 0,
+    nextOilChangeKm: vehicle.nextOilChangeKm || 0,
+    insuranceExpiry: vehicle.insuranceExpiry ? format(new Date(vehicle.insuranceExpiry), "yyyy-MM-dd") : "",
+    vignetteExpiry: vehicle.vignetteExpiry ? format(new Date(vehicle.vignetteExpiry), "yyyy-MM-dd") : "",
+    technicalInspectionExpiry: vehicle.technicalInspectionExpiry ? format(new Date(vehicle.technicalInspectionExpiry), "yyyy-MM-dd") : "",
+  });
+
+  // Calculer automatiquement la prochaine vidange (10 000 km après)
+  const handleOilChangeKmUpdate = (km: number) => {
+    setForm((f) => ({
+      ...f,
+      lastOilChangeKm: km,
+      nextOilChangeKm: km + 10000,
+    }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({
+      currentKm: form.currentKm || null,
+      lastOilChangeDate: form.lastOilChangeDate ? new Date(form.lastOilChangeDate) : null,
+      lastOilChangeKm: form.lastOilChangeKm || null,
+      nextOilChangeKm: form.nextOilChangeKm || null,
+      insuranceExpiry: form.insuranceExpiry ? new Date(form.insuranceExpiry) : null,
+      vignetteExpiry: form.vignetteExpiry ? new Date(form.vignetteExpiry) : null,
+      technicalInspectionExpiry: form.technicalInspectionExpiry ? new Date(form.technicalInspectionExpiry) : null,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Kilométrage */}
+      <div className="space-y-4">
+        <h4 className="font-medium flex items-center gap-2">
+          <Gauge className="h-4 w-4" />
+          Kilométrage
+        </h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Kilométrage actuel</Label>
+            <Input
+              type="number"
+              value={form.currentKm}
+              onChange={(e) => setForm((f) => ({ ...f, currentKm: Number(e.target.value) }))}
+              placeholder="Ex: 50000"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Vidange */}
+      <div className="space-y-4">
+        <h4 className="font-medium flex items-center gap-2">
+          <Droplet className="h-4 w-4" />
+          Vidange
+        </h4>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label>Dernière vidange (date)</Label>
+            <Input
+              type="date"
+              value={form.lastOilChangeDate}
+              onChange={(e) => setForm((f) => ({ ...f, lastOilChangeDate: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Km lors de la vidange</Label>
+            <Input
+              type="number"
+              value={form.lastOilChangeKm}
+              onChange={(e) => handleOilChangeKmUpdate(Number(e.target.value))}
+              placeholder="Ex: 45000"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Prochaine vidange à</Label>
+            <Input
+              type="number"
+              value={form.nextOilChangeKm}
+              onChange={(e) => setForm((f) => ({ ...f, nextOilChangeKm: Number(e.target.value) }))}
+              placeholder="Ex: 55000"
+            />
+            <p className="text-xs text-muted-foreground">Auto: +10 000 km</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Documents */}
+      <div className="space-y-4">
+        <h4 className="font-medium flex items-center gap-2">
+          <FileCheck className="h-4 w-4" />
+          Documents administratifs
+        </h4>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label>Expiration assurance</Label>
+            <Input
+              type="date"
+              value={form.insuranceExpiry}
+              onChange={(e) => setForm((f) => ({ ...f, insuranceExpiry: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Expiration vignette</Label>
+            <Input
+              type="date"
+              value={form.vignetteExpiry}
+              onChange={(e) => setForm((f) => ({ ...f, vignetteExpiry: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Expiration contrôle technique</Label>
+            <Input
+              type="date"
+              value={form.technicalInspectionExpiry}
+              onChange={(e) => setForm((f) => ({ ...f, technicalInspectionExpiry: e.target.value }))}
+            />
+          </div>
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Annuler
+        </Button>
+        <Button type="submit" disabled={isLoading}>
+          {isLoading ? "Enregistrement..." : "Enregistrer"}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 
