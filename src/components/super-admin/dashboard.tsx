@@ -19,7 +19,10 @@ import {
   Activity,
   Database,
   Settings,
+  RefreshCw,
+  Shield,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import {
   LineChart,
   Line,
@@ -52,11 +55,59 @@ export function SuperAdminDashboard() {
     queryKey: ["platform-stats"],
     queryFn: fetchPlatformStats,
   });
+  const { toast } = useToast();
+  const [migrationLoading, setMigrationLoading] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState<any>(null);
 
   const stats = data?.stats || {};
   const registrationTrend = data?.registrationTrend || [];
   const revenueByCompany = data?.revenueByCompany || [];
   const planDistribution = data?.planDistribution || [];
+
+  // Check migration status on mount
+  useEffect(() => {
+    checkMigrationStatus();
+  }, []);
+
+  const checkMigrationStatus = async () => {
+    try {
+      const res = await fetch("/api/migrate-tenant");
+      const data = await res.json();
+      setMigrationStatus(data.status);
+    } catch (error) {
+      console.error("Error checking migration status:", error);
+    }
+  };
+
+  const runMigration = async () => {
+    setMigrationLoading(true);
+    try {
+      const res = await fetch("/api/migrate-tenant", { method: "POST" });
+      const data = await res.json();
+      
+      if (data.success) {
+        toast({
+          title: "Migration réussie",
+          description: "L'architecture multi-tenant a été configurée avec succès.",
+        });
+        checkMigrationStatus();
+      } else {
+        toast({
+          title: "Erreur",
+          description: data.error || "Erreur lors de la migration",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Erreur",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setMigrationLoading(false);
+    }
+  };
 
   // Default data for charts when no data
   const defaultTrend = [
@@ -293,6 +344,86 @@ export function SuperAdminDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Multi-Tenant Migration Status */}
+      <Card className="border-amber-200 bg-amber-50/50">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-amber-600" />
+            <CardTitle>Architecture Multi-Tenant</CardTitle>
+          </div>
+          <CardDescription>
+            Isolation des données entre les clients
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* Migration Status */}
+            {migrationStatus && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  {migrationStatus.table_TenantAccount ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-red-500" />
+                  )}
+                  <span>Table TenantAccount</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {migrationStatus.column_User_tenantId ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-red-500" />
+                  )}
+                  <span>tenantId (User)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {migrationStatus.column_Vehicle_tenantId ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-red-500" />
+                  )}
+                  <span>tenantId (Vehicle)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">
+                    {migrationStatus.tenantCount || 0} tenants
+                  </Badge>
+                </div>
+              </div>
+            )}
+            
+            {/* Migration Button */}
+            <div className="flex items-center gap-4">
+              <Button 
+                onClick={runMigration} 
+                disabled={migrationLoading}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                {migrationLoading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Migration en cours...
+                  </>
+                ) : (
+                  <>
+                    <Database className="h-4 w-4 mr-2" />
+                    Exécuter la migration multi-tenant
+                  </>
+                )}
+              </Button>
+              <Button variant="outline" onClick={checkMigrationStatus}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Vérifier le statut
+              </Button>
+            </div>
+            
+            <p className="text-xs text-muted-foreground">
+              Cette migration crée la table TenantAccount et ajoute les colonnes tenantId à toutes les tables pour isoler les données de chaque client.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Quick Actions */}
       <Card>
