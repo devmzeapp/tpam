@@ -25,11 +25,16 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Use raw SQL to avoid Prisma schema issues
+    // Use raw SQL to get user with tenant information
+    // Support both old (companyId) and new (tenantId) schemas during migration
     const userResult = await db.$queryRaw`
-      SELECT u.id, u.email, u.password, u.name, u.role, u.active, u.approved, u."companyId",
-             c.name as "companyName", c.blocked as "companyBlocked"
+      SELECT u.id, u.email, u.password, u.name, u.role, u.active, u.approved, 
+             COALESCE(u."tenantId", u."companyId") as "tenantId",
+             COALESCE(t.name, c.name) as "tenantName",
+             COALESCE(t.blocked, c.blocked, false) as "tenantBlocked",
+             COALESCE(t.active, true) as "tenantActive"
       FROM "User" u
+      LEFT JOIN "TenantAccount" t ON u."tenantId" = t.id
       LEFT JOIN "Company" c ON u."companyId" = c.id
       WHERE u.email = ${email}
     `;
@@ -50,10 +55,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if company is blocked
-    if (user.companyBlocked) {
+    // Check if tenant is blocked
+    if (user.tenantBlocked) {
       return NextResponse.json(
         { error: "Votre compte entreprise est bloqué. Veuillez contacter l'administrateur." },
+        { status: 403 }
+      );
+    }
+
+    // Check if tenant is active
+    if (!user.tenantActive) {
+      return NextResponse.json(
+        { error: "Votre compte entreprise est désactivé. Veuillez contacter l'administrateur." },
         { status: 403 }
       );
     }
@@ -77,6 +90,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Determine if user is super admin
+    const isSuperAdminUser = user.role === 'SUPER_ADMIN';
+    
+    // Determine if user is admin client
+    const isAdminClient = user.role === 'ADMIN_CLIENT' || user.role === 'ADMIN';
+
     return NextResponse.json({
       success: true,
       user: {
@@ -84,8 +103,10 @@ export async function POST(request: NextRequest) {
         email: user.email,
         name: user.name,
         role: user.role,
-        companyId: user.companyId,
-        companyName: user.companyName,
+        tenantId: user.tenantId,
+        tenantName: user.tenantName,
+        isSuperAdmin: isSuperAdminUser,
+        isAdminClient: isAdminClient,
       },
     });
   } catch (error) {
